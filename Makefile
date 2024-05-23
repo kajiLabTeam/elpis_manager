@@ -2,6 +2,9 @@ GOCMD=go
 GORUN=$(GOCMD) run
 GOBUILD=$(GOCMD) build
 
+all: ## Run the Docker container
+	@docker compose up -d
+
 run: ## Run the server
 	@$(GORUN) ./cmd/server.go
 
