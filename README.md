@@ -9,7 +9,7 @@ This project is a system for indoor location estimation. It uses BLE beacons and
 
 ## Installation
 
-1. リポジトリをクローンします。
+1. Clone the repository.
 
 ```sh
 git@github.com:kajiLabTeam/elpis_manager.git
