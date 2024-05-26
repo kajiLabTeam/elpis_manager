@@ -1,54 +1,114 @@
 package main
 
 import (
-	"fmt"
+	"encoding/csv"
+	"encoding/json"
 	"io"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 )
 
-func saveCSVHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
-		return
-	}
+type UploadResponse struct {
+	Message string `json:"message"`
+}
 
-	// Parse the multipart form, if it's a multipart form request
-	err := r.ParseMultipartForm(10 << 20) // max memory 10MB
+type ServerResponse struct {
+	PercentageProcessed int `json:"percentage_processed"`
+}
+
+func parseCSV(file multipart.File) ([][]string, error) {
+	reader := csv.NewReader(file)
+	var records [][]string
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
+	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "Unable to parse form", http.StatusBadRequest)
+		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
 		return
 	}
+	defer wifiFile.Close()
 
-	file, _, err := r.FormFile("file")
+	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
+		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer bleFile.Close()
 
-	os.MkdirAll("./csv", os.ModePerm)
-
-	dst, err := os.Create(filepath.Join("./csv", "uploaded.csv"))
+	_, err = parseCSV(wifiFile)
 	if err != nil {
-		http.Error(w, "Unable to create file on the server", http.StatusInternalServerError)
+		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
 		return
 	}
-	defer dst.Close()
 
-	_, err = io.Copy(dst, file)
+	_, err = parseCSV(bleFile)
 	if err != nil {
-		http.Error(w, "Error saving the file", http.StatusInternalServerError)
+		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "File uploaded successfully")
+	response := UploadResponse{Message: "Signal data received"}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
+	wifiFile, _, err := r.FormFile("wifi_data")
+	if err != nil {
+		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
+		return
+	}
+	defer wifiFile.Close()
+
+	bleFile, _, err := r.FormFile("ble_data")
+	if err != nil {
+		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
+		return
+	}
+	defer bleFile.Close()
+
+	_, err = parseCSV(wifiFile)
+	if err != nil {
+		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
+		return
+	}
+
+	_, err = parseCSV(bleFile)
+	if err != nil {
+		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
+		return
+	}
+
+	response := ServerResponse{PercentageProcessed: 100}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
-	http.HandleFunc("/upload", saveCSVHandler)
-	fmt.Println("Server started at :8080")
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/api/signals/submit", handleSignalsSubmit)
+	http.HandleFunc("/api/signals/server", handleSignalsServer)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Starting server on port %s...", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("Could not start server: %s\n", err)
+	}
 }

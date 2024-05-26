@@ -39,3 +39,65 @@ To upload a CSV file, send a POST request to the `/upload` endpoint with the fil
 ```sh
 curl -X POST -F "file=@test.csv" http://localhost:8080/upload
 ```
+
+```pwsh
+$boundary = [System.Guid]::NewGuid().ToString()
+
+$wifiData = [System.IO.File]::ReadAllBytes("./csv/wifi_data.csv")
+$wifiContent = [System.Text.Encoding]::UTF8.GetString($wifiData)
+
+
+$bleData = [System.IO.File]::ReadAllBytes("./csv/ble_data.csv")
+$bleContent = [System.Text.Encoding]::UTF8.GetString($bleData)
+
+$bodyLines = @(
+    "--$boundary",
+    'Content-Disposition: form-data; name="wifi_data"; filename="wifi_data.csv"',
+    'Content-Type: text/csv',
+    '',
+    $wifiContent,
+    "--$boundary",
+    'Content-Disposition: form-data; name="ble_data"; filename="ble_data.csv"',
+    'Content-Type: text/csv',
+    '',
+    $bleContent,
+    "--$boundary--"
+)
+
+$body = $bodyLines -join "`r`n"
+
+$response = Invoke-RestMethod -Uri "http://localhost:8080/api/signals/submit" -Method Post -ContentType "multipart/form-data; boundary=$boundary" -Body $body
+
+$response | ConvertTo-Json
+```
+
+```pwsh
+$boundary = [System.Guid]::NewGuid().ToString()
+
+$wifiData = [System.IO.File]::ReadAllBytes("./csv/wifi_data.csv")
+$wifiContent = [System.Text.Encoding]::UTF8.GetString($wifiData)
+
+$bleData = [System.IO.File]::ReadAllBytes("./csv/ble_data.csv")
+$bleContent = [System.Text.Encoding]::UTF8.GetString($bleData)
+
+$bodyLines = @(
+    "--$boundary",
+    'Content-Disposition: form-data; name="wifi_data"; filename="wifi_data.csv"',
+    'Content-Type: text/csv',
+    '',
+    $wifiContent,
+    "--$boundary",
+    'Content-Disposition: form-data; name="ble_data"; filename="ble_data.csv"',
+    'Content-Type: text/csv',
+    '',
+    $bleContent,
+    "--$boundary--"
+)
+
+$body = $bodyLines -join "`r`n"
+
+$response = Invoke-RestMethod -Uri "http://localhost:8080/api/signals/server" -Method Post -ContentType "multipart/form-data; boundary=$boundary" -Body $body
+
+
+$response | ConvertTo-Json
+```
