@@ -1,0 +1,4 @@
+Device Address,RSSI,Advertised Name,Manufacturer Data,Service UUIDs,Service Data,TX Power Level
+"00:1A:7D:DA:71:13",-45,"Device1","01020304","180F,180A","1234567890abcdef",0
+"00:1A:7D:DA:71:14",-60,"Device2","05060708","180D,180F","abcdef1234567890",-4
+"00:1A:7D:DA:71:15",-70,"Device3","090A0B0C","180F","abcdef1234567890",-8

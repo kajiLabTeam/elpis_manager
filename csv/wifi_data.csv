@@ -1,0 +1,2 @@
+SSID,BSSID,RSSI,Channel,Frequency,Security,SignalQuality,Capabilities,Timestamp
+MyHomeWiFi,00:14:22:01:23:45,-45,6,2437,WPA2,85%,802.11n,2024-05-27 12:34:56
