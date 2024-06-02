@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -55,10 +56,16 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseCSV(bleFile)
+	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
 		return
+	}
+
+	for _, record := range bleRecords {
+		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+		}
 	}
 
 	response := UploadResponse{Message: "Signal data received"}
@@ -87,10 +94,16 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = parseCSV(bleFile)
+	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
 		return
+	}
+
+	for _, record := range bleRecords {
+		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+		}
 	}
 
 	response := ServerResponse{PercentageProcessed: 100}
