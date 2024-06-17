@@ -12,19 +12,23 @@ import (
 	"os"
 )
 
+// UploadResponse represents the response for signal data upload.
 type UploadResponse struct {
 	Message string `json:"message"`
 }
 
+// ServerResponse represents the response for the signals server.
 type ServerResponse struct {
 	PercentageProcessed int `json:"percentage_processed"`
 }
 
+// RegisterRequest represents the registration request payload.
 type RegisterRequest struct {
 	SystemURI string `json:"system_uri"`
 	Port      int    `json:"port"`
 }
 
+// parseCSV parses a CSV file from a multipart.File.
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
 	var records [][]string
@@ -41,6 +45,56 @@ func parseCSV(file multipart.File) ([][]string, error) {
 	return records, nil
 }
 
+// forwardFilesToInquiry forwards the BLE and WiFi files to the /api/inquiry endpoint.
+func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File) error {
+	// Rewind the files to read from the beginning
+	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err := bleFile.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	// Create a new multipart writer to build the request body
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add the WiFi file to the multipart form
+	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(wifiPart, wifiFile); err != nil {
+		return err
+	}
+
+	// Add the BLE file to the multipart form
+	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(blePart, bleFile); err != nil {
+		return err
+	}
+
+	// Close the multipart writer to finalize the form
+	writer.Close()
+
+	// Send the request to the /api/inquiry endpoint
+	resp, err := http.Post("http://localhost:8080/api/inquiry", writer.FormDataContentType(), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to forward files, status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// handleSignalsSubmit handles the /api/signals/submit endpoint.
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
@@ -68,9 +122,20 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	foundTargetMAC := false
 	for _, record := range bleRecords {
 		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+			foundTargetMAC = true
 			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+			break
+		}
+	}
+
+	if !foundTargetMAC {
+		err := forwardFilesToInquiry(wifiFile, bleFile)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -79,6 +144,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleSignalsServer handles the /api/signals/server endpoint.
 func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
@@ -106,9 +172,20 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	foundTargetMAC := false
 	for _, record := range bleRecords {
 		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+			foundTargetMAC = true
 			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+			break
+		}
+	}
+
+	if !foundTargetMAC {
+		err := forwardFilesToInquiry(wifiFile, bleFile)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			return
 		}
 	}
 
