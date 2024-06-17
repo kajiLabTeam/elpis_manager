@@ -139,7 +139,6 @@ func main() {
 		log.Fatalf("Failed to register server, status code: %d\n", resp.StatusCode)
 	}
 
-	// Start the server
 	http.HandleFunc("/api/signals/submit", handleSignalsSubmit)
 	http.HandleFunc("/api/signals/server", handleSignalsServer)
 
