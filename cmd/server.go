@@ -118,7 +118,6 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Register the server by sending a POST request to /api/register
 	registerURL := "http://localhost:8080/api/register"
 	registerData := RegisterRequest{
 		SystemURI: "http://localhost",
