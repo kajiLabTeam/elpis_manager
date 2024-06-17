@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,11 @@ type UploadResponse struct {
 
 type ServerResponse struct {
 	PercentageProcessed int `json:"percentage_processed"`
+}
+
+type RegisterRequest struct {
+	SystemURI string `json:"system_uri"`
+	Port      int    `json:"port"`
 }
 
 func parseCSV(file multipart.File) ([][]string, error) {
@@ -112,6 +118,29 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Register the server by sending a POST request to /api/register
+	registerURL := "http://localhost:8080/api/register"
+	registerData := RegisterRequest{
+		SystemURI: "http://localhost",
+		Port:      8010,
+	}
+
+	registerBody, err := json.Marshal(registerData)
+	if err != nil {
+		log.Fatalf("Error encoding register request: %s\n", err)
+	}
+
+	resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
+	if err != nil {
+		log.Fatalf("Error registering server: %s\n", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("Failed to register server, status code: %d\n", resp.StatusCode)
+	}
+
+	// Start the server
 	http.HandleFunc("/api/signals/submit", handleSignalsSubmit)
 	http.HandleFunc("/api/signals/server", handleSignalsServer)
 
