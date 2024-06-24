@@ -195,9 +195,9 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	registerURL := "http://host.docker.internal:8080/api/register"
+	registerURL := "http://proxy:8080/api/register"
 	registerData := RegisterRequest{
-		SystemURI: "http://host.docker.internal",
+		SystemURI: "http://manager",
 		Port:      8010,
 	}
 

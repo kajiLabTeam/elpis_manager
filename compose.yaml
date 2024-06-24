@@ -1,5 +1,5 @@
 services:
-  app:
+  manager:
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,3 +9,9 @@ services:
       - .:/app
     working_dir: /app
     command: go run ./cmd/server.go
+    networks:
+      - elpis_network
+
+networks:
+  elpis_network:
+    external: true
