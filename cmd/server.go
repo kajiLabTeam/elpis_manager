@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 // UploadResponse represents the response for signal data upload.
@@ -195,25 +196,33 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	registerURL := "http://proxy:8080/api/register"
-	registerData := RegisterRequest{
-		SystemURI: "http://manager",
-		Port:      8010,
+	// Check if registration should be skipped
+	skipRegistration := true
+	if val, exists := os.LookupEnv("SKIP_REGISTRATION"); exists {
+		skipRegistration, _ = strconv.ParseBool(val)
 	}
 
-	registerBody, err := json.Marshal(registerData)
-	if err != nil {
-		log.Fatalf("Error encoding register request: %s\n", err)
-	}
+	if !skipRegistration {
+		registerURL := "http://proxy:8080/api/register"
+		registerData := RegisterRequest{
+			SystemURI: "http://manager",
+			Port:      8010,
+		}
 
-	resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
-	if err != nil {
-		log.Fatalf("Error registering server: %s\n", err)
-	}
-	defer resp.Body.Close()
+		registerBody, err := json.Marshal(registerData)
+		if err != nil {
+			log.Fatalf("Error encoding register request: %s\n", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Failed to register server, status code: %d\n", resp.StatusCode)
+		resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
+		if err != nil {
+			log.Fatalf("Error registering server: %s\n", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Fatalf("Failed to register server, status code: %d\n", resp.StatusCode)
+		}
 	}
 
 	http.HandleFunc("/api/signals/submit", handleSignalsSubmit)
