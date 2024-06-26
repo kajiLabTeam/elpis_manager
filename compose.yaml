@@ -11,6 +11,7 @@ services:
     command: go run ./cmd/server.go
     networks:
       - elpis_network
+
   postgres:
     image: postgres:16.3-bookworm
     environment:
@@ -23,6 +24,17 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - elpis_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - 5050:80
+    networks:
+      - elpis_network
+
 networks:
   elpis_network:
     external: true
