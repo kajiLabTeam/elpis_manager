@@ -11,7 +11,18 @@ services:
     command: go run ./cmd/server.go
     networks:
       - elpis_network
-
+  postgres:
+    image: postgres:16.3-bookworm
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydb
+    ports:
+      - 5432:5432
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - elpis_network
 networks:
   elpis_network:
     external: true
