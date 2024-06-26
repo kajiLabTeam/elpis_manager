@@ -1,8 +1,6 @@
 services:
   manager:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: golang:latest
     ports:
       - 8010:8010
     volumes:
