@@ -1,14 +1,13 @@
 CREATE TABLE Users (
-	id INT(20) NOT NULL AUTO_INCREMENT,
+	id SERIAL PRIMARY KEY,
 	user_id VARCHAR(20) NOT NULL,
-	password VARCHAR(20),
-	PRIMARY KEY (id)
+	password VARCHAR(20)
 );
 
 CREATE TABLE rooms (
     room_id SERIAL PRIMARY KEY,
     room_name VARCHAR(100) NOT NULL,
-    location INT(255)
+    location INT
 );
 
 CREATE TABLE beacons (
@@ -29,7 +28,7 @@ CREATE TABLE wifi_access_points (
 );
 
 CREATE TABLE roles (
-    role_id INT PRIMARY KEY,
+    role_id SERIAL PRIMARY KEY,
     role_name VARCHAR(50) NOT NULL
 );
 
@@ -37,7 +36,7 @@ CREATE TABLE user_roles (
     user_id INT,
     role_id INT,
     PRIMARY KEY (user_id, role_id),
-    FOREIGN KEY (user_id) REFERENCES Users(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (role_id) REFERENCES roles(role_id)
 );
 
