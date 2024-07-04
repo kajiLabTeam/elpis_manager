@@ -27,6 +27,7 @@ services:
     image: node:22-bookworm-slim
     volumes:
       - ./web:/app
+      - /app/node_modules
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     ports:
