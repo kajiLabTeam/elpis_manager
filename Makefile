@@ -6,14 +6,20 @@ all: ## Run the Docker container
 	@docker network create elpis_network || true
 	@docker compose up -d
 
-down: ## Stop the Docker container and remove the network
+build: ## Build the Docker image
+	@docker compose build
+
+down: ## Stop the Docker container
+	@docker compose down
+
+delete: ## Stop the Docker container and remove the network
 	@docker compose down
 	@docker network rm elpis_network || true
 
 run: ## Run the server
 	@$(GORUN) ./cmd/server.go
 
-build: ## Build for local OS
+build/local: ## Build for local OS
 	GOOS=linux $(GOBUILD) ./cmd/server.go
 
 build/pi: ## Build for Raspberry Pi
