@@ -1,6 +1,6 @@
 services:
   manager:
-    image: golang:latest
+    image: golang:1.22.5-bookworm
     ports:
       - 8010:8010
     volumes:
@@ -24,7 +24,7 @@ services:
       - elpis_network
 
   vite-app:
-    image: node:lts
+    image: node:22-bookworm-slim
     volumes:
       - ./web:/app
     working_dir: /app
