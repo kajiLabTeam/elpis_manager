@@ -8,7 +8,8 @@ services:
     working_dir: /app
     command: go run ./cmd/server.go
     networks:
-      - elpis_network
+      elpis_network:
+        ipv4_address: 172.20.0.2
 
   postgres:
     image: postgres:16.3-bookworm
@@ -21,7 +22,8 @@ services:
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - elpis_network
+      elpis_network:
+        ipv4_address: 172.20.0.3
 
   vite-app:
     image: node:22-bookworm-slim
@@ -32,6 +34,9 @@ services:
     command: sh -c "npm install && npm run dev"
     ports:
       - '5173:5173'
+    networks:
+      elpis_network:
+        ipv4_address: 172.20.0.4
 
   pgadmin:
     image: dpage/pgadmin4
@@ -41,8 +46,12 @@ services:
     ports:
       - 5050:80
     networks:
-      - elpis_network
+      elpis_network:
+        ipv4_address: 172.20.0.5
 
 networks:
   elpis_network:
-    external: true
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
