@@ -38,17 +38,6 @@ services:
       elpis_network:
         ipv4_address: 172.21.0.4
 
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - 5050:80
-    networks:
-      elpis_network:
-        ipv4_address: 172.21.0.5
-
 networks:
   elpis_network:
     driver: bridge
