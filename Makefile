@@ -3,7 +3,7 @@ GORUN=$(GOCMD) run
 GOBUILD=$(GOCMD) build
 
 all: ## Run the Docker container
-	@docker network create elpis_network || true
+	@docker network create --subnet=172.20.0.0/16 elpis_network || true
 	@docker compose up -d
 
 build: ## Build the Docker image
