@@ -203,9 +203,9 @@ func main() {
 	}
 
 	if !skipRegistration {
-		registerURL := "http://172.20.0.6:8080/api/register"
+		registerURL := "http://172.21.0.6:8080/api/register"
 		registerData := RegisterRequest{
-			SystemURI: "http://172.20.0.2",
+			SystemURI: "http://172.21.0.2",
 			Port:      8010,
 		}
 
