@@ -4,7 +4,7 @@ services:
     ports:
       - 8010:8010
     volumes:
-      - ./manager:/app
+      - .:/app
     working_dir: /app
     command: go run ./cmd/server.go
 
@@ -17,7 +17,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - ./manager/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
   vite-app:
     image: node:22-bookworm-slim
@@ -31,4 +31,7 @@ services:
 
 networks:
   elpis_network:
-    external: true
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

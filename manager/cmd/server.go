@@ -196,7 +196,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	skipRegistration := false
+	skipRegistration := true
 	if val, exists := os.LookupEnv("SKIP_REGISTRATION"); exists {
 		skipRegistration, _ = strconv.ParseBool(val)
 	}
