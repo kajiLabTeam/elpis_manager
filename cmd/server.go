@@ -196,16 +196,15 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Check if registration should be skipped
-	skipRegistration := true
+	skipRegistration := false
 	if val, exists := os.LookupEnv("SKIP_REGISTRATION"); exists {
 		skipRegistration, _ = strconv.ParseBool(val)
 	}
 
 	if !skipRegistration {
-		registerURL := "http://172.21.0.6:8080/api/register"
+		registerURL := "http://localhost:8080/api/register"
 		registerData := RegisterRequest{
-			SystemURI: "http://172.21.0.2",
+			SystemURI: "http://localhost",
 			Port:      8010,
 		}
 

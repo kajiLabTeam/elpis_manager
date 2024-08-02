@@ -37,13 +37,13 @@ make run
 To upload a CSV file, send a POST request to the `/upload` endpoint with the file as a form-data parameter.
 
 ```sh
-curl -X POST http://localhost:8080/api/signals/submit \
+curl -X POST http://localhost:8010/api/signals/submit \
   -F "wifi_data=@./csv/wifi_data.csv" \
   -F "ble_data=@./csv/ble_data.csv"
 ```
 
 ```sh
-curl -X POST http://localhost:8080/api/signals/server \
+curl -X POST http://localhost:8010/api/signals/server \
   -F "wifi_data=@./csv/wifi_data.csv" \
   -F "ble_data=@./csv/ble_data.csv"
 ```
