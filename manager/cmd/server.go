@@ -159,7 +159,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 		}
 	}
 
-	if !foundTargetMAC {
+	if foundTargetMAC {
+		log.Println("Target MAC address found in BLE data.")
+	} else {
+		log.Println("Target MAC address not found in BLE data.")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
@@ -209,7 +212,10 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 		}
 	}
 
-	if !foundTargetMAC {
+	if foundTargetMAC {
+		log.Println("Target MAC address found in BLE data.")
+	} else {
+		log.Println("Target MAC address not found in BLE data.")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
