@@ -59,9 +59,9 @@ VALUES
 INSERT INTO
     rooms (room_name, location)
 VALUES
-    ('Conference Room A', 101),
-    ('Conference Room B', 102),
-    ('Lobby', 103);
+    ('Graduate Students Room', 513),
+    ('Undergraduate Students Room', 514),
+    ('Professors Office', 515);
 
 INSERT INTO
     beacons (beacon_name, service_uuid, mac_address, room_id)
