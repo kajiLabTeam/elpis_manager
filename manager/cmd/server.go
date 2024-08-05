@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -12,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+
+	_ "github.com/lib/pq"
 )
 
 // UploadResponse represents the response for signal data upload.
@@ -96,8 +99,31 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 	return nil
 }
 
+// getMacAddresses fetches all MAC addresses from the beacons table.
+func getMacAddresses(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query("SELECT mac_address FROM beacons")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	macAddresses := make(map[string]bool)
+	for rows.Next() {
+		var macAddress string
+		if err := rows.Scan(&macAddress); err != nil {
+			return nil, err
+		}
+		macAddresses[macAddress] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return macAddresses, nil
+}
+
 // handleSignalsSubmit handles the /api/signals/submit endpoint.
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, macAddresses map[string]bool) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -126,9 +152,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTargetMAC := false
 	for _, record := range bleRecords {
-		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+		if len(record) > 1 && macAddresses[record[1]] {
 			foundTargetMAC = true
-			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+			fmt.Printf("Found target MAC address: %s\n", record[1])
 			break
 		}
 	}
@@ -147,7 +173,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 }
 
 // handleSignalsServer handles the /api/signals/server endpoint.
-func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string) {
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, macAddresses map[string]bool) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -176,9 +202,9 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTargetMAC := false
 	for _, record := range bleRecords {
-		if len(record) > 1 && record[1] == "2E-3C-A8-03-7C-0A" {
+		if len(record) > 1 && macAddresses[record[1]] {
 			foundTargetMAC = true
-			fmt.Println("Found target MAC address: 2E-3C-A8-03-7C-0A")
+			fmt.Printf("Found target MAC address: %s\n", record[1])
 			break
 		}
 	}
@@ -202,15 +228,30 @@ func main() {
 	port := flag.String("port", "8010", "Port to run the server on")
 	flag.Parse()
 
-	var proxyURL, managerURL string
+	var proxyURL, managerURL, dbConnStr string
 
 	// Determine URLs based on the mode
 	if *mode == "local" {
 		proxyURL = "http://localhost:8080"
 		managerURL = "http://localhost"
+		dbConnStr = "postgres://myuser:mypassword@localhost:5434/proxydb?sslmode=disable"
 	} else {
 		proxyURL = "http://proxy:8080"
 		managerURL = "http://manager"
+		dbConnStr = "postgres://myuser:mypassword@postgres_proxy:5432/proxydb?sslmode=disable"
+	}
+
+	// Connect to the database
+	db, err := sql.Open("postgres", dbConnStr)
+	if err != nil {
+		log.Fatalf("Could not connect to the database: %v\n", err)
+	}
+	defer db.Close()
+
+	// Fetch MAC addresses from the database
+	macAddresses, err := getMacAddresses(db)
+	if err != nil {
+		log.Fatalf("Could not fetch MAC addresses: %v\n", err)
 	}
 
 	skipRegistration := true
@@ -242,10 +283,10 @@ func main() {
 	}
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsSubmit(w, r, proxyURL)
+		handleSignalsSubmit(w, r, proxyURL, macAddresses)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsServer(w, r, proxyURL)
+		handleSignalsServer(w, r, proxyURL, macAddresses)
 	})
 
 	log.Printf("Starting server on port %s in %s mode...", *port, *mode)
