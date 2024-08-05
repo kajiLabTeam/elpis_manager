@@ -234,11 +234,11 @@ func main() {
 	if *mode == "local" {
 		proxyURL = "http://localhost:8080"
 		managerURL = "http://localhost"
-		dbConnStr = "postgres://myuser:mypassword@localhost:5434/proxydb?sslmode=disable"
+		dbConnStr = "postgres://myuser:mypassword@localhost:5433/managerdb?sslmode=disable"
 	} else {
 		proxyURL = "http://proxy:8080"
 		managerURL = "http://manager"
-		dbConnStr = "postgres://myuser:mypassword@postgres_proxy:5432/proxydb?sslmode=disable"
+		dbConnStr = "postgres://myuser:mypassword@postgres_manager:5432/managerdb?sslmode=disable"
 	}
 
 	// Connect to the database
