@@ -67,9 +67,9 @@ INSERT INTO
     beacons (beacon_name, service_uuid, mac_address, room_id)
 VALUES
     (
-        'Beacon 1',
-        '550e8400-e29b-41d4-a716-446655440000',
-        '00:11:22:33:44:55',
+        'smartphone_beacon',
+        '8ebc2114-4abd-ba0d-b7c6-ff0a00200050',
+        '7D:6A:CC:21:67:2E',
         1
     ),
     (
