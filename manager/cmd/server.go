@@ -82,7 +82,7 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File) erro
 	writer.Close()
 
 	// Send the request to the /api/inquiry endpoint
-	resp, err := http.Post("http://localhost:8080/api/inquiry", writer.FormDataContentType(), body)
+	resp, err := http.Post("http://proxy:8080/api/inquiry", writer.FormDataContentType(), body)
 	if err != nil {
 		return err
 	}
@@ -202,9 +202,9 @@ func main() {
 	}
 
 	if !skipRegistration {
-		registerURL := "http://localhost:8080/api/register"
+		registerURL := "http://proxy:8080/api/register"
 		registerData := RegisterRequest{
-			SystemURI: "http://localhost",
+			SystemURI: "http://manager",
 			Port:      8010,
 		}
 

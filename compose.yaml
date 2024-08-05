@@ -1,16 +1,4 @@
 services:
-  manager:
-    image: golang:1.22.5-bookworm
-    ports:
-      - 8010:8010
-    volumes:
-      - ./manager:/app
-    working_dir: /app
-    depends_on:
-      postgres_manager:
-        condition: service_healthy
-    command: go run ./cmd/server.go
-
   proxy:
     image: golang:1.22.5-bookworm
     ports:
@@ -20,6 +8,18 @@ services:
     working_dir: /app
     depends_on:
       postgres_proxy:
+        condition: service_healthy
+    command: go run ./cmd/server.go
+    
+  manager:
+    image: golang:1.22.5-bookworm
+    ports:
+      - 8010:8010
+    volumes:
+      - ./manager:/app
+    working_dir: /app
+    depends_on:
+      postgres_manager:
         condition: service_healthy
     command: go run ./cmd/server.go
 
