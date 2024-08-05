@@ -13,6 +13,10 @@ MANAGER_CMD_PATH := ./manager/cmd/server.go
         proxy manager postgres_manager postgres_proxy vite-app \
         proxy-local manager-local
 
+# Default flags for running Go services locally
+GO_FLAGS ?= -mode=local -port=8010
+
+
 all: up ## Build and start the services
 
 build: ## Build the Docker images for all services
@@ -50,16 +54,16 @@ postgres_proxy: ## Run only the postgres_proxy service
 vite-app: ## Run only the vite-app service
 	docker-compose up -d vite-app
 
-proxy-local: ## Run the proxy service locally
+proxy-local: ## Run the proxy service locally with command-line flags
 	@echo "Running Proxy Service Locally..."
 	go run $(PROXY_CMD_PATH)
 
-manager-local: ## Run the manager service locally
+manager-local: ## Run the manager service locally with command-line flags
 	@echo "Running Manager Service Locally..."
-	go run $(MANAGER_CMD_PATH)
+	go run $(MANAGER_CMD_PATH) $(GO_FLAGS)
 
 help: ## Display this help message
-	@echo "Usage: make [target]"
+	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
 	@echo
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'

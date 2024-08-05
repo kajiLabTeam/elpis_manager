@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -47,7 +48,7 @@ func parseCSV(file multipart.File) ([][]string, error) {
 }
 
 // forwardFilesToInquiry forwards the BLE and WiFi files to the /api/inquiry endpoint.
-func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File) error {
+func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, proxyURL string) error {
 	// Rewind the files to read from the beginning
 	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
 		return err
@@ -82,7 +83,7 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File) erro
 	writer.Close()
 
 	// Send the request to the /api/inquiry endpoint
-	resp, err := http.Post("http://proxy:8080/api/inquiry", writer.FormDataContentType(), body)
+	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), writer.FormDataContentType(), body)
 	if err != nil {
 		return err
 	}
@@ -96,7 +97,7 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File) erro
 }
 
 // handleSignalsSubmit handles the /api/signals/submit endpoint.
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -133,7 +134,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !foundTargetMAC {
-		err := forwardFilesToInquiry(wifiFile, bleFile)
+		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
 			return
@@ -146,7 +147,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSignalsServer handles the /api/signals/server endpoint.
-func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -183,7 +184,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !foundTargetMAC {
-		err := forwardFilesToInquiry(wifiFile, bleFile)
+		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
 			return
@@ -196,15 +197,31 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Define command-line flags for mode and port
+	mode := flag.String("mode", "docker", "Mode to run the application in (docker or local)")
+	port := flag.String("port", "8010", "Port to run the server on")
+	flag.Parse()
+
+	var proxyURL, managerURL string
+
+	// Determine URLs based on the mode
+	if *mode == "local" {
+		proxyURL = "http://localhost:8080"
+		managerURL = "http://localhost"
+	} else {
+		proxyURL = "http://proxy:8080"
+		managerURL = "http://manager"
+	}
+
 	skipRegistration := true
 	if val, exists := os.LookupEnv("SKIP_REGISTRATION"); exists {
 		skipRegistration, _ = strconv.ParseBool(val)
 	}
 
 	if !skipRegistration {
-		registerURL := "http://proxy:8080/api/register"
+		registerURL := fmt.Sprintf("%s/api/register", proxyURL)
 		registerData := RegisterRequest{
-			SystemURI: "http://manager",
+			SystemURI: managerURL,
 			Port:      8010,
 		}
 
@@ -224,16 +241,15 @@ func main() {
 		}
 	}
 
-	http.HandleFunc("/api/signals/submit", handleSignalsSubmit)
-	http.HandleFunc("/api/signals/server", handleSignalsServer)
+	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
+		handleSignalsSubmit(w, r, proxyURL)
+	})
+	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
+		handleSignalsServer(w, r, proxyURL)
+	})
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8010"
-	}
-
-	log.Printf("Starting server on port %s...", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	log.Printf("Starting server on port %s in %s mode...", *port, *mode)
+	if err := http.ListenAndServe(":"+*port, nil); err != nil {
 		log.Fatalf("Could not start server: %s\n", err)
 	}
 }
