@@ -155,13 +155,21 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTarget := false
 	for _, record := range bleRecords {
-		log.Printf("Processing BLE record: %v\n", record)          // Add this log to check the record being processed
-		log.Printf("MAC Addresses: %v\n", macAddresses[record[1]]) // Add this log to check the macAddresses
-		log.Printf("UUIDs: %v\n", uuids[record[0]])                // Add this log to check the uuids
-		if len(record) > 1 && (macAddresses[record[1]] || uuids[record[0]]) {
-			foundTarget = true
-			fmt.Printf("Found target MAC address or UUID: %s, %s\n", record[1], record[0])
-			break
+		if len(record) > 1 {
+			uuid := record[1]       // Adjust index if needed
+			macAddress := record[2] // Adjust index if needed
+
+			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress) // Add this log to check the record being processed
+			if _, exists := macAddresses[macAddress]; exists {
+				foundTarget = true
+				log.Printf("Found target MAC address: %s\n", macAddress)
+				break
+			}
+			if _, exists := uuids[uuid]; exists {
+				foundTarget = true
+				log.Printf("Found target UUID: %s\n", uuid)
+				break
+			}
 		}
 	}
 
@@ -211,11 +219,21 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTarget := false
 	for _, record := range bleRecords {
-		log.Printf("Processing BLE record: %v\n", record) // Add this log to check the record being processed
-		if len(record) > 1 && (macAddresses[record[1]] || uuids[record[0]]) {
-			foundTarget = true
-			fmt.Printf("Found target MAC address or UUID: %s, %s\n", record[1], record[0])
-			break
+		if len(record) > 1 {
+			uuid := record[1]       // Adjust index if needed
+			macAddress := record[2] // Adjust index if needed
+
+			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress) // Add this log to check the record being processed
+			if _, exists := macAddresses[macAddress]; exists {
+				foundTarget = true
+				log.Printf("Found target MAC address: %s\n", macAddress)
+				break
+			}
+			if _, exists := uuids[uuid]; exists {
+				foundTarget = true
+				log.Printf("Found target UUID: %s\n", uuid)
+				break
+			}
 		}
 	}
 
