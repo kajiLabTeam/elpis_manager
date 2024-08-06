@@ -155,6 +155,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTarget := false
 	for _, record := range bleRecords {
+		log.Printf("Processing BLE record: %v\n", record)          // Add this log to check the record being processed
+		log.Printf("MAC Addresses: %v\n", macAddresses[record[1]]) // Add this log to check the macAddresses
+		log.Printf("UUIDs: %v\n", uuids[record[0]])                // Add this log to check the uuids
 		if len(record) > 1 && (macAddresses[record[1]] || uuids[record[0]]) {
 			foundTarget = true
 			fmt.Printf("Found target MAC address or UUID: %s, %s\n", record[1], record[0])
@@ -208,6 +211,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundTarget := false
 	for _, record := range bleRecords {
+		log.Printf("Processing BLE record: %v\n", record) // Add this log to check the record being processed
 		if len(record) > 1 && (macAddresses[record[1]] || uuids[record[0]]) {
 			foundTarget = true
 			fmt.Printf("Found target MAC address or UUID: %s, %s\n", record[1], record[0])
