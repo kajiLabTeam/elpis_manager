@@ -99,99 +99,32 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 	return nil
 }
 
-// getMacAndUUIDs fetches all MAC addresses and UUIDs from the beacons table.
-func getMacAndUUIDs(db *sql.DB) (map[string]bool, map[string]bool, error) {
-	rows, err := db.Query("SELECT mac_address, service_uuid FROM beacons")
+// getUUIDs fetches all UUIDs from the beacons table.
+func getUUIDs(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query("SELECT service_uuid FROM beacons")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	macAddresses := make(map[string]bool)
 	uuids := make(map[string]bool)
 	for rows.Next() {
-		var macAddress string
 		var uuid string
-		if err := rows.Scan(&macAddress, &uuid); err != nil {
-			return nil, nil, err
+		if err := rows.Scan(&uuid); err != nil {
+			return nil, err
 		}
-		macAddresses[macAddress] = true
 		uuids[uuid] = true
-		log.Printf("Loaded MAC: %s, UUID: %s", macAddress, uuid)
+		log.Printf("Loaded UUID: %s", uuid)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return macAddresses, uuids, nil
+	return uuids, nil
 }
 
 // handleSignalsSubmit handles the /api/signals/submit endpoint.
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, macAddresses map[string]bool, uuids map[string]bool) {
-	wifiFile, _, err := r.FormFile("wifi_data")
-	if err != nil {
-		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
-		return
-	}
-	defer wifiFile.Close()
-
-	bleFile, _, err := r.FormFile("ble_data")
-	if err != nil {
-		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
-		return
-	}
-	defer bleFile.Close()
-
-	_, err = parseCSV(wifiFile)
-	if err != nil {
-		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
-		return
-	}
-
-	bleRecords, err := parseCSV(bleFile)
-	if err != nil {
-		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
-		return
-	}
-
-	foundTarget := false
-	for _, record := range bleRecords {
-		if len(record) > 1 {
-			uuid := record[1]       // Adjust index if needed
-			macAddress := record[2] // Adjust index if needed
-
-			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress) // Add this log to check the record being processed
-			if _, exists := macAddresses[macAddress]; exists {
-				foundTarget = true
-				log.Printf("Found target MAC address: %s\n", macAddress)
-				break
-			}
-			if _, exists := uuids[uuid]; exists {
-				foundTarget = true
-				log.Printf("Found target UUID: %s\n", uuid)
-				break
-			}
-		}
-	}
-
-	if foundTarget {
-		log.Println("Target MAC address or UUID found in BLE data.")
-	} else {
-		log.Println("Target MAC address or UUID not found in BLE data.")
-		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	response := UploadResponse{Message: "Signal data received"}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleSignalsServer handles the /api/signals/server endpoint.
-func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, macAddresses map[string]bool, uuids map[string]bool) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuids map[string]bool) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -222,14 +155,8 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	for _, record := range bleRecords {
 		if len(record) > 1 {
 			uuid := record[1]
-			macAddress := record[2]
 
-			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress)
-			if _, exists := macAddresses[macAddress]; exists {
-				foundTarget = true
-				log.Printf("Found target MAC address: %s\n", macAddress)
-				break
-			}
+			log.Printf("Processing BLE record UUID: %s\n", uuid)
 			if _, exists := uuids[uuid]; exists {
 				foundTarget = true
 				log.Printf("Found target UUID: %s\n", uuid)
@@ -239,9 +166,67 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 
 	if foundTarget {
-		log.Println("Target MAC address or UUID found in BLE data.")
+		log.Println("Target UUID found in BLE data.")
 	} else {
-		log.Println("Target MAC address or UUID not found in BLE data.")
+		log.Println("Target UUID not found in BLE data.")
+		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	response := UploadResponse{Message: "Signal data received"}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleSignalsServer handles the /api/signals/server endpoint.
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuids map[string]bool) {
+	wifiFile, _, err := r.FormFile("wifi_data")
+	if err != nil {
+		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
+		return
+	}
+	defer wifiFile.Close()
+
+	bleFile, _, err := r.FormFile("ble_data")
+	if err != nil {
+		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
+		return
+	}
+	defer bleFile.Close()
+
+	_, err = parseCSV(wifiFile)
+	if err != nil {
+		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
+		return
+	}
+
+	bleRecords, err := parseCSV(bleFile)
+	if err != nil {
+		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
+		return
+	}
+
+	foundTarget := false
+	for _, record := range bleRecords {
+		if len(record) > 1 {
+			uuid := record[1]
+
+			log.Printf("Processing BLE record UUID: %s\n", uuid)
+			if _, exists := uuids[uuid]; exists {
+				foundTarget = true
+				log.Printf("Found target UUID: %s\n", uuid)
+				break
+			}
+		}
+	}
+
+	if foundTarget {
+		log.Println("Target UUID found in BLE data.")
+	} else {
+		log.Println("Target UUID not found in BLE data.")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
@@ -280,10 +265,10 @@ func main() {
 	}
 	defer db.Close()
 
-	// Fetch MAC addresses and UUIDs from the database
-	macAddresses, uuids, err := getMacAndUUIDs(db)
+	// Fetch UUIDs from the database
+	uuids, err := getUUIDs(db)
 	if err != nil {
-		log.Fatalf("Could not fetch MAC addresses and UUIDs: %v\n", err)
+		log.Fatalf("Could not fetch UUIDs: %v\n", err)
 	}
 
 	skipRegistration := true
@@ -315,10 +300,10 @@ func main() {
 	}
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsSubmit(w, r, proxyURL, macAddresses, uuids)
+		handleSignalsSubmit(w, r, proxyURL, uuids)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsServer(w, r, proxyURL, macAddresses, uuids)
+		handleSignalsServer(w, r, proxyURL, uuids)
 	})
 
 	log.Printf("Starting server on port %s in %s mode...", *port, *mode)
