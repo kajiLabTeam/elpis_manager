@@ -117,6 +117,7 @@ func getMacAndUUIDs(db *sql.DB) (map[string]bool, map[string]bool, error) {
 		}
 		macAddresses[macAddress] = true
 		uuids[uuid] = true
+		log.Printf("Loaded MAC: %s, UUID: %s", macAddress, uuid)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
@@ -220,10 +221,10 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	foundTarget := false
 	for _, record := range bleRecords {
 		if len(record) > 1 {
-			uuid := record[1]       // Adjust index if needed
-			macAddress := record[2] // Adjust index if needed
+			uuid := record[1]
+			macAddress := record[2]
 
-			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress) // Add this log to check the record being processed
+			log.Printf("Processing BLE record UUID: %s, MAC: %s\n", uuid, macAddress)
 			if _, exists := macAddresses[macAddress]; exists {
 				foundTarget = true
 				log.Printf("Found target MAC address: %s\n", macAddress)
