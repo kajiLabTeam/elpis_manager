@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -113,6 +114,7 @@ func getUUIDs(db *sql.DB) (map[string]bool, error) {
 		if err := rows.Scan(&uuid); err != nil {
 			return nil, err
 		}
+		uuid = strings.TrimSpace(uuid) // トリム処理を追加
 		uuids[uuid] = true
 		log.Printf("Loaded UUID: %s", uuid)
 	}
@@ -154,9 +156,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	foundTarget := false
 	for _, record := range bleRecords {
 		if len(record) > 1 {
-			uuid := record[1] // UUID
+			uuid := strings.TrimSpace(record[1]) // トリム処理を追加
 
-			log.Printf("Processing BLE record UUID: %s\n", uuid) // Add this log to check the record being processed
+			log.Printf("Processing BLE record UUID: %s\n", uuid)
 			for targetUUID := range uuids {
 				if uuid == targetUUID {
 					foundTarget = true
@@ -217,7 +219,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	foundTarget := false
 	for _, record := range bleRecords {
 		if len(record) > 1 {
-			uuid := record[1]
+			uuid := strings.TrimSpace(record[1]) // トリム処理を追加
 
 			log.Printf("Processing BLE record UUID: %s\n", uuid)
 			for targetUUID := range uuids {
