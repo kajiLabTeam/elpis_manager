@@ -10,7 +10,8 @@ CMD_PATH := ./cmd/server.go
 # Define default targets
 .PHONY: build up down restart clean help \
         proxy-local manager-local \
-        restart-manager restart-proxy e2e-test
+        restart-manager restart-proxy e2e-test \
+        db-up db-down
 
 # Default flags for running Go services locally
 GO_FLAGS ?= -mode=local -port=8010
@@ -45,6 +46,12 @@ restart-proxy: ## Restart only the proxy service
 
 e2e-test: ## Run end-to-end tests by executing test_send_data.sh
 	./test_send_data.sh
+
+db-up: ## Start only the database services
+	docker compose up -d postgres_manager postgres_proxy
+
+db-down: ## Stop and remove the database services and their volumes
+	docker compose rm -s -v -f postgres_manager postgres_proxy
 
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
