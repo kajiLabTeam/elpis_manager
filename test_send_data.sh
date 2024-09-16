@@ -11,8 +11,8 @@ WIFI_CSV_FILE="wifi_data.csv"
 CURRENT_TIMESTAMP=$(date +%s)
 
 # テストケースの定義（配列を使用）
-TEST_NAMES=("EqualThreshold" "AboveThreshold" "BelowThreshold")
-RSSI_VALUES=(-65 -64 -66)
+TEST_NAMES=("EqualThreshold" "AboveThreshold" "BelowThreshold" "DeviceNotFound" "NoBLEData")
+RSSI_VALUES=(-65 -64 -66 0 0)  # DeviceNotFoundとNoBLEDataの場合はRSSI値は使用しません
 
 # しきい値（データベースに設定されている値と一致させてください）
 THRESHOLD=-65
@@ -22,15 +22,29 @@ for i in "${!TEST_NAMES[@]}"; do
     TEST_NAME=${TEST_NAMES[$i]}
     RSSI_VALUE=${RSSI_VALUES[$i]}
 
-    echo "=== テストケース: $TEST_NAME (RSSI: $RSSI_VALUE) ==="
+    echo "=== テストケース: $TEST_NAME ==="
 
-    # テスト用のBLE CSVデータを作成
-    cat > $BLE_CSV_FILE <<EOL
+    # BLE CSVデータを作成
+    if [ "$TEST_NAME" == "DeviceNotFound" ]; then
+        # デバイスが見つからない場合のBLEデータ（未知のUUIDを使用）
+        cat > $BLE_CSV_FILE <<EOL
+timestamp,uuid,rssi
+$CURRENT_TIMESTAMP,unknown-uuid,$RSSI_VALUE
+EOL
+    elif [ "$TEST_NAME" == "NoBLEData" ]; then
+        # BLEデータが空の場合
+        cat > $BLE_CSV_FILE <<EOL
+timestamp,uuid,rssi
+EOL
+    else
+        # 通常のBLEデータ
+        cat > $BLE_CSV_FILE <<EOL
 timestamp,uuid,rssi
 $CURRENT_TIMESTAMP,8ebc2114-4abd-ba0d-b7c6-ff0a00200050,$RSSI_VALUE
 EOL
+    fi
 
-    # テスト用のWiFi CSVデータを作成（内容はテストに影響しないため固定）
+    # WiFi CSVデータを作成（内容はテストに影響しないため固定）
     cat > $WIFI_CSV_FILE <<EOL
 timestamp,bssid,rssi
 $CURRENT_TIMESTAMP,66:77:88:99:AA:BB,-60
