@@ -8,9 +8,9 @@ export COMPOSE_FILE := compose.yaml
 CMD_PATH := ./cmd/server.go
 
 # Define default targets
-.PHONY: all build up down logs restart clean help \
-        proxy manager postgres_manager postgres_proxy vite-app \
-        proxy-local manager-local
+.PHONY: build up down restart clean help \
+        proxy-local manager-local \
+        restart-manager restart-proxy e2e-test
 
 # Default flags for running Go services locally
 GO_FLAGS ?= -mode=local -port=8010
