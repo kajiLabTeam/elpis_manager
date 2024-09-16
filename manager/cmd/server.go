@@ -37,17 +37,18 @@ type RegisterRequest struct {
 // parseCSV parses a CSV file from a multipart.File.
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
-	var records [][]string
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		records = append(records, record)
+
+	// Read and discard the header row
+	if _, err := reader.Read(); err != nil {
+		return nil, fmt.Errorf("error reading header row: %v", err)
 	}
+
+	// Read the rest of the records
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("error reading CSV records: %v", err)
+	}
+
 	return records, nil
 }
 
