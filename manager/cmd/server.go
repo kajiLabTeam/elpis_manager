@@ -114,7 +114,7 @@ func getUUIDs(db *sql.DB) (map[string]bool, error) {
 		if err := rows.Scan(&uuid); err != nil {
 			return nil, err
 		}
-		uuid = strings.TrimSpace(uuid) // トリム処理を追加
+		uuid = strings.TrimSpace(uuid) // Trim whitespace
 		uuids[uuid] = true
 		log.Printf("Loaded UUID: %s", uuid)
 	}
@@ -141,41 +141,65 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 	defer bleFile.Close()
 
+	// Parse WiFi CSV data (not used in this logic, but parsing to ensure it's valid)
 	_, err = parseCSV(wifiFile)
 	if err != nil {
 		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
 		return
 	}
 
+	// Parse BLE CSV data
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
 		return
 	}
 
-	foundTarget := false
-	for _, record := range bleRecords {
-		if len(record) > 1 {
-			uuid := strings.TrimSpace(record[1]) // トリム処理を追加
+	const rssiThreshold = -70 // Define your RSSI threshold
 
-			log.Printf("Processing BLE record UUID: %s\n", uuid)
-			for targetUUID := range uuids {
-				if uuid == targetUUID {
-					foundTarget = true
-					log.Printf("Found target UUID: %s\n", uuid)
-					break
-				}
+	foundStrongSignal := false
+	foundWeakSignal := false
+
+	for _, record := range bleRecords {
+		if len(record) > 2 {
+			uuid := strings.TrimSpace(record[1])
+			rssiStr := strings.TrimSpace(record[2])
+			rssiValue, err := strconv.Atoi(rssiStr)
+			if err != nil {
+				log.Printf("Invalid RSSI value: %s", rssiStr)
+				continue
 			}
-			if foundTarget {
-				break
+
+			if uuids[uuid] {
+				if rssiValue >= rssiThreshold {
+					// Strong signal, consider device present
+					foundStrongSignal = true
+					log.Printf("Strong signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					break
+				} else {
+					// Weak signal, need to query the inquiry server
+					foundWeakSignal = true
+					log.Printf("Weak signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					// Continue checking other records in case there is a strong signal
+				}
 			}
 		}
 	}
 
-	if foundTarget {
-		log.Println("Target UUID found in BLE data.")
+	if foundStrongSignal {
+		// Device is present with strong signal; no need to query the inquiry server
+		log.Println("Device is present with a strong signal.")
+	} else if foundWeakSignal {
+		// Device has a weak signal; query the inquiry server
+		log.Println("Device has a weak signal; querying the inquiry server.")
+		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			return
+		}
 	} else {
-		log.Println("Target UUID not found in BLE data.")
+		// Device not found; proceed as per your requirements
+		log.Println("Device not found in BLE data; forwarding to inquiry server.")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
@@ -204,41 +228,65 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 	defer bleFile.Close()
 
+	// Parse WiFi CSV data (not used in this logic, but parsing to ensure it's valid)
 	_, err = parseCSV(wifiFile)
 	if err != nil {
 		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
 		return
 	}
 
+	// Parse BLE CSV data
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
 		return
 	}
 
-	foundTarget := false
-	for _, record := range bleRecords {
-		if len(record) > 1 {
-			uuid := strings.TrimSpace(record[1]) // トリム処理を追加
+	const rssiThreshold = -70 // Define your RSSI threshold
 
-			log.Printf("Processing BLE record UUID: %s\n", uuid)
-			for targetUUID := range uuids {
-				if uuid == targetUUID {
-					foundTarget = true
-					log.Printf("Found target UUID: %s\n", uuid)
-					break
-				}
+	foundStrongSignal := false
+	foundWeakSignal := false
+
+	for _, record := range bleRecords {
+		if len(record) > 2 {
+			uuid := strings.TrimSpace(record[1])
+			rssiStr := strings.TrimSpace(record[2])
+			rssiValue, err := strconv.Atoi(rssiStr)
+			if err != nil {
+				log.Printf("Invalid RSSI value: %s", rssiStr)
+				continue
 			}
-			if foundTarget {
-				break
+
+			if uuids[uuid] {
+				if rssiValue >= rssiThreshold {
+					// Strong signal, consider device present
+					foundStrongSignal = true
+					log.Printf("Strong signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					break
+				} else {
+					// Weak signal, need to query the inquiry server
+					foundWeakSignal = true
+					log.Printf("Weak signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					// Continue checking other records in case there is a strong signal
+				}
 			}
 		}
 	}
 
-	if foundTarget {
-		log.Println("Target UUID found in BLE data.")
+	if foundStrongSignal {
+		// Device is present with strong signal; no need to query the inquiry server
+		log.Println("Device is present with a strong signal.")
+	} else if foundWeakSignal {
+		// Device has a weak signal; query the inquiry server
+		log.Println("Device has a weak signal; querying the inquiry server.")
+		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			return
+		}
 	} else {
-		log.Println("Target UUID not found in BLE data.")
+		// Device not found; proceed as per your requirements
+		log.Println("Device not found in BLE data; forwarding to inquiry server.")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
