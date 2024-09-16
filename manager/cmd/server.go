@@ -100,33 +100,35 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 	return nil
 }
 
-// getUUIDs fetches all UUIDs from the beacons table.
-func getUUIDs(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT service_uuid FROM beacons")
+// getUUIDsAndThresholds fetches all UUIDs and their RSSI thresholds from the beacons table.
+func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
+	rows, err := db.Query("SELECT service_uuid, rssi FROM beacons")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	uuids := make(map[string]bool)
+	// Map of UUID to RSSI threshold
+	uuidThresholds := make(map[string]int)
 	for rows.Next() {
 		var uuid string
-		if err := rows.Scan(&uuid); err != nil {
+		var threshold int
+		if err := rows.Scan(&uuid, &threshold); err != nil {
 			return nil, err
 		}
 		uuid = strings.TrimSpace(uuid) // Trim whitespace
-		uuids[uuid] = true
-		log.Printf("Loaded UUID: %s", uuid)
+		uuidThresholds[uuid] = threshold
+		log.Printf("Loaded UUID: %s with RSSI threshold: %d", uuid, threshold)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return uuids, nil
+	return uuidThresholds, nil
 }
 
 // handleSignalsSubmit handles the /api/signals/submit endpoint.
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuids map[string]bool) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -155,8 +157,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 		return
 	}
 
-	const rssiThreshold = -70 // Define your RSSI threshold
-
 	foundStrongSignal := false
 	foundWeakSignal := false
 
@@ -170,16 +170,16 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 				continue
 			}
 
-			if uuids[uuid] {
-				if rssiValue >= rssiThreshold {
-					// Strong signal, consider device present
+			if threshold, exists := uuidThresholds[uuid]; exists {
+				if rssiValue >= threshold {
+					// RSSI is strong enough; consider device present
 					foundStrongSignal = true
-					log.Printf("Strong signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					log.Printf("Strong signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// Weak signal, need to query the inquiry server
+					// RSSI is weak; may need to query inquiry server
 					foundWeakSignal = true
-					log.Printf("Weak signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					log.Printf("Weak signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
 					// Continue checking other records in case there is a strong signal
 				}
 			}
@@ -213,7 +213,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 }
 
 // handleSignalsServer handles the /api/signals/server endpoint.
-func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuids map[string]bool) {
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
@@ -242,8 +242,6 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 		return
 	}
 
-	const rssiThreshold = -70 // Define your RSSI threshold
-
 	foundStrongSignal := false
 	foundWeakSignal := false
 
@@ -257,16 +255,16 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 				continue
 			}
 
-			if uuids[uuid] {
-				if rssiValue >= rssiThreshold {
-					// Strong signal, consider device present
+			if threshold, exists := uuidThresholds[uuid]; exists {
+				if rssiValue >= threshold {
+					// RSSI is strong enough; consider device present
 					foundStrongSignal = true
-					log.Printf("Strong signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					log.Printf("Strong signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// Weak signal, need to query the inquiry server
+					// RSSI is weak; may need to query inquiry server
 					foundWeakSignal = true
-					log.Printf("Weak signal detected for UUID: %s with RSSI: %d", uuid, rssiValue)
+					log.Printf("Weak signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
 					// Continue checking other records in case there is a strong signal
 				}
 			}
@@ -325,10 +323,10 @@ func main() {
 	}
 	defer db.Close()
 
-	// Fetch UUIDs from the database
-	uuids, err := getUUIDs(db)
+	// Fetch UUIDs and their RSSI thresholds from the database
+	uuidThresholds, err := getUUIDsAndThresholds(db)
 	if err != nil {
-		log.Fatalf("Could not fetch UUIDs: %v\n", err)
+		log.Fatalf("Could not fetch UUIDs and thresholds: %v\n", err)
 	}
 
 	skipRegistration := true
@@ -360,10 +358,10 @@ func main() {
 	}
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsSubmit(w, r, proxyURL, uuids)
+		handleSignalsSubmit(w, r, proxyURL, uuidThresholds)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsServer(w, r, proxyURL, uuids)
+		handleSignalsServer(w, r, proxyURL, uuidThresholds)
 	})
 
 	log.Printf("Starting server on port %s in %s mode...", *port, *mode)
