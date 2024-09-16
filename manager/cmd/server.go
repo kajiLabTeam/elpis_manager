@@ -18,43 +18,43 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// UploadResponse represents the response for signal data upload.
+// UploadResponse は信号データのアップロードに対するレスポンスを表します
 type UploadResponse struct {
 	Message string `json:"message"`
 }
 
-// ServerResponse represents the response for the signals server.
+// ServerResponse は信号サーバに対するレスポンスを表します
 type ServerResponse struct {
 	PercentageProcessed int `json:"percentage_processed"`
 }
 
-// RegisterRequest represents the registration request payload.
+// RegisterRequest は登録リクエストのペイロードを表します
 type RegisterRequest struct {
 	SystemURI string `json:"system_uri"`
 	Port      int    `json:"port"`
 }
 
-// parseCSV parses a CSV file from a multipart.File.
+// multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
 
-	// Read and discard the header row
+	// ヘッダー行を読み飛ばす
 	if _, err := reader.Read(); err != nil {
-		return nil, fmt.Errorf("error reading header row: %v", err)
+		return nil, fmt.Errorf("ヘッダー行の読み込みエラー: %v", err)
 	}
 
-	// Read the rest of the records
+	// 残りのレコードを読み込む
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("error reading CSV records: %v", err)
+		return nil, fmt.Errorf("CSVレコードの読み込みエラー: %v", err)
 	}
 
 	return records, nil
 }
 
-// forwardFilesToInquiry forwards the BLE and WiFi files to the /api/inquiry endpoint.
+// BLEとWiFiのファイルを /api/inquiry エンドポイントに転送する
 func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, proxyURL string) error {
-	// Rewind the files to read from the beginning
+	// ファイルを先頭に戻す
 	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -62,11 +62,11 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// Create a new multipart writer to build the request body
+	// リクエストボディを構築するためのmultipartライターを作成
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Add the WiFi file to the multipart form
+	// WiFiファイルをフォームに追加
 	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
 	if err != nil {
 		return err
@@ -75,7 +75,7 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// Add the BLE file to the multipart form
+	// BLEファイルをフォームに追加
 	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
 	if err != nil {
 		return err
@@ -84,10 +84,10 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// Close the multipart writer to finalize the form
+	// multipartライターを閉じてフォームを完了
 	writer.Close()
 
-	// Send the request to the /api/inquiry endpoint
+	// /api/inquiry エンドポイントにリクエストを送信
 	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), writer.FormDataContentType(), body)
 	if err != nil {
 		return err
@@ -95,13 +95,13 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to forward files, status code: %d", resp.StatusCode)
+		return fmt.Errorf("ファイルの転送に失敗しました。ステータスコード: %d", resp.StatusCode)
 	}
 
 	return nil
 }
 
-// getUUIDsAndThresholds fetches all UUIDs and their RSSI thresholds from the beacons table.
+// beaconsテーブルからすべてのUUIDとそのRSSIしきい値を取得
 func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 	rows, err := db.Query("SELECT service_uuid, rssi FROM beacons")
 	if err != nil {
@@ -109,7 +109,7 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 	}
 	defer rows.Close()
 
-	// Map of UUID to RSSI threshold
+	// UUIDをRSSIしきい値にマッピング
 	uuidThresholds := make(map[string]int)
 	for rows.Next() {
 		var uuid string
@@ -117,9 +117,9 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 		if err := rows.Scan(&uuid, &threshold); err != nil {
 			return nil, err
 		}
-		uuid = strings.TrimSpace(uuid) // Trim whitespace
+		uuid = strings.TrimSpace(uuid) // 空白を除去
 		uuidThresholds[uuid] = threshold
-		log.Printf("Loaded UUID: %s with RSSI threshold: %d", uuid, threshold)
+		log.Printf("UUIDをロード: %s, RSSIしきい値: %d", uuid, threshold)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -128,33 +128,33 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 	return uuidThresholds, nil
 }
 
-// handleSignalsSubmit handles the /api/signals/submit endpoint.
+// /api/signals/submit エンドポイントの処理
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
+		http.Error(w, "WiFiデータファイルの読み込みエラー", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
+		http.Error(w, "BLEデータファイルの読み込みエラー", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
 
-	// Parse WiFi CSV data (not used in this logic, but parsing to ensure it's valid)
+	// WiFi CSVデータをパース（このロジックでは使用しないが、妥当性を確認するためにパース）
 	_, err = parseCSV(wifiFile)
 	if err != nil {
-		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
+		http.Error(w, "WiFi CSVのパースエラー", http.StatusBadRequest)
 		return
 	}
 
-	// Parse BLE CSV data
+	// BLE CSVデータをパース
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
-		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
+		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
 		return
 	}
 
@@ -167,79 +167,79 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 			rssiStr := strings.TrimSpace(record[2])
 			rssiValue, err := strconv.Atoi(rssiStr)
 			if err != nil {
-				log.Printf("Invalid RSSI value: %s", rssiStr)
+				log.Printf("無効なRSSI値: %s", rssiStr)
 				continue
 			}
 
 			if threshold, exists := uuidThresholds[uuid]; exists {
-				if rssiValue >= threshold {
-					// RSSI is strong enough; consider device present
+				if rssiValue > threshold {
+					// RSSIがしきい値より大きい（信号が強い）; デバイスが存在すると判断
 					foundStrongSignal = true
-					log.Printf("Strong signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
+					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// RSSI is weak; may need to query inquiry server
+					// RSSIがしきい値以下（信号が弱い）; 照会サーバに問い合わせる必要がある
 					foundWeakSignal = true
-					log.Printf("Weak signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
-					// Continue checking other records in case there is a strong signal
+					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
+					// 他のレコードをチェック
 				}
 			}
 		}
 	}
 
 	if foundStrongSignal {
-		// Device is present with strong signal; no need to query the inquiry server
-		log.Println("Device is present with a strong signal.")
+		// 強い信号が検出されたので、照会サーバに問い合わせる必要はない
+		log.Println("強い信号でデバイスが存在します。")
 	} else if foundWeakSignal {
-		// Device has a weak signal; query the inquiry server
-		log.Println("Device has a weak signal; querying the inquiry server.")
+		// 弱い信号が検出されたので、照会サーバに問い合わせる
+		log.Println("弱い信号が検出されたため、照会サーバに問い合わせます。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
-		// Device not found; proceed as per your requirements
-		log.Println("Device not found in BLE data; forwarding to inquiry server.")
+		// デバイスが見つからなかった場合
+		log.Println("BLEデータにデバイスが見つからなかったため、照会サーバに転送します。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	response := UploadResponse{Message: "Signal data received"}
+	response := UploadResponse{Message: "信号データを受信しました"}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleSignalsServer handles the /api/signals/server endpoint.
+// /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "Error reading WiFi data file", http.StatusBadRequest)
+		http.Error(w, "WiFiデータファイルの読み込みエラー", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "Error reading BLE data file", http.StatusBadRequest)
+		http.Error(w, "BLEデータファイルの読み込みエラー", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
 
-	// Parse WiFi CSV data (not used in this logic, but parsing to ensure it's valid)
+	// WiFi CSVデータをパース（このロジックでは使用しないが、妥当性を確認するためにパース）
 	_, err = parseCSV(wifiFile)
 	if err != nil {
-		http.Error(w, "Error parsing WiFi CSV", http.StatusBadRequest)
+		http.Error(w, "WiFi CSVのパースエラー", http.StatusBadRequest)
 		return
 	}
 
-	// Parse BLE CSV data
+	// BLE CSVデータをパース
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
-		http.Error(w, "Error parsing BLE CSV", http.StatusBadRequest)
+		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
 		return
 	}
 
@@ -252,43 +252,43 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 			rssiStr := strings.TrimSpace(record[2])
 			rssiValue, err := strconv.Atoi(rssiStr)
 			if err != nil {
-				log.Printf("Invalid RSSI value: %s", rssiStr)
+				log.Printf("無効なRSSI値: %s", rssiStr)
 				continue
 			}
 
 			if threshold, exists := uuidThresholds[uuid]; exists {
-				if rssiValue >= threshold {
-					// RSSI is strong enough; consider device present
+				if rssiValue > threshold {
+					// RSSIがしきい値より大きい（信号が強い）; デバイスが存在すると判断
 					foundStrongSignal = true
-					log.Printf("Strong signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
+					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// RSSI is weak; may need to query inquiry server
+					// RSSIがしきい値以下（信号が弱い）; 照会サーバに問い合わせる必要がある
 					foundWeakSignal = true
-					log.Printf("Weak signal detected for UUID: %s with RSSI: %d (Threshold: %d)", uuid, rssiValue, threshold)
-					// Continue checking other records in case there is a strong signal
+					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
+					// 他のレコードをチェック
 				}
 			}
 		}
 	}
 
 	if foundStrongSignal {
-		// Device is present with strong signal; no need to query the inquiry server
-		log.Println("Device is present with a strong signal.")
+		// 強い信号が検出されたので、照会サーバに問い合わせる必要はない
+		log.Println("強い信号でデバイスが存在します。")
 	} else if foundWeakSignal {
-		// Device has a weak signal; query the inquiry server
-		log.Println("Device has a weak signal; querying the inquiry server.")
+		// 弱い信号が検出されたので、照会サーバに問い合わせる
+		log.Println("弱い信号が検出されたため、照会サーバに問い合わせます。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 	} else {
-		// Device not found; proceed as per your requirements
-		log.Println("Device not found in BLE data; forwarding to inquiry server.")
+		// デバイスが見つからなかった場合
+		log.Println("BLEデータにデバイスが見つからなかったため、照会サーバに転送します。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error forwarding files to inquiry: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -299,14 +299,14 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 }
 
 func main() {
-	// Define command-line flags for mode and port
-	mode := flag.String("mode", "docker", "Mode to run the application in (docker or local)")
-	port := flag.String("port", "8010", "Port to run the server on")
+	// モードとポートのコマンドラインフラグを定義
+	mode := flag.String("mode", "docker", "アプリケーションの実行モード (docker または local)")
+	port := flag.String("port", "8010", "サーバを実行するポート")
 	flag.Parse()
 
 	var proxyURL, managerURL, dbConnStr string
 
-	// Determine URLs based on the mode
+	// モードに応じてURLを決定
 	if *mode == "local" {
 		proxyURL = "http://localhost:8080"
 		managerURL = "http://localhost"
@@ -317,17 +317,17 @@ func main() {
 		dbConnStr = "postgres://myuser:mypassword@postgres_manager:5432/managerdb?sslmode=disable"
 	}
 
-	// Connect to the database
+	// データベースに接続
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
-		log.Fatalf("Could not connect to the database: %v\n", err)
+		log.Fatalf("データベースに接続できませんでした: %v\n", err)
 	}
 	defer db.Close()
 
-	// Fetch UUIDs and their RSSI thresholds from the database
+	// データベースからUUIDとRSSIしきい値を取得
 	uuidThresholds, err := getUUIDsAndThresholds(db)
 	if err != nil {
-		log.Fatalf("Could not fetch UUIDs and thresholds: %v\n", err)
+		log.Fatalf("UUIDとしきい値を取得できませんでした: %v\n", err)
 	}
 
 	skipRegistration := true
@@ -344,17 +344,17 @@ func main() {
 
 		registerBody, err := json.Marshal(registerData)
 		if err != nil {
-			log.Fatalf("Error encoding register request: %s\n", err)
+			log.Fatalf("登録リクエストのエンコードエラー: %s\n", err)
 		}
 
 		resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
 		if err != nil {
-			log.Fatalf("Error registering server: %s\n", err)
+			log.Fatalf("サーバの登録エラー: %s\n", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			log.Fatalf("Failed to register server, status code: %d\n", resp.StatusCode)
+			log.Fatalf("サーバの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
 		}
 	}
 
@@ -365,8 +365,8 @@ func main() {
 		handleSignalsServer(w, r, proxyURL, uuidThresholds)
 	})
 
-	log.Printf("Starting server on port %s in %s mode...", *port, *mode)
+	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {
-		log.Fatalf("Could not start server: %s\n", err)
+		log.Fatalf("サーバを開始できませんでした: %s\n", err)
 	}
 }

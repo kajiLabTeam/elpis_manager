@@ -1,37 +1,57 @@
 #!/bin/bash
 
-# Define variables
-GO_APP_PORT="8010"  # Adjust if your server runs on a different port
+# サーバのポートを指定
+GO_APP_PORT="8010"  # サーバが異なるポートで実行されている場合は調整してください
+
+# テスト用のBLE CSVファイル名
 BLE_CSV_FILE="ble_data.csv"
 WIFI_CSV_FILE="wifi_data.csv"
 
-# Create test BLE CSV data
-cat > $BLE_CSV_FILE <<EOL
+# 現在のタイムスタンプ
+CURRENT_TIMESTAMP=$(date +%s)
+
+# テストケースの定義（配列を使用）
+TEST_NAMES=("EqualThreshold" "AboveThreshold" "BelowThreshold")
+RSSI_VALUES=(-65 -64 -66)
+
+# しきい値（データベースに設定されている値と一致させてください）
+THRESHOLD=-65
+
+# 各テストケースを実行
+for i in "${!TEST_NAMES[@]}"; do
+    TEST_NAME=${TEST_NAMES[$i]}
+    RSSI_VALUE=${RSSI_VALUES[$i]}
+
+    echo "=== テストケース: $TEST_NAME (RSSI: $RSSI_VALUE) ==="
+
+    # テスト用のBLE CSVデータを作成
+    cat > $BLE_CSV_FILE <<EOL
 timestamp,uuid,rssi
-$(date +%s),8ebc2114-4abd-ba0d-b7c6-ff0a00200050,-60
-$(date +%s),00000000-1111-2222-3333-444444444444,-80
+$CURRENT_TIMESTAMP,8ebc2114-4abd-ba0d-b7c6-ff0a00200050,$RSSI_VALUE
 EOL
 
-# Create test WiFi CSV data
-cat > $WIFI_CSV_FILE <<EOL
+    # テスト用のWiFi CSVデータを作成（内容はテストに影響しないため固定）
+    cat > $WIFI_CSV_FILE <<EOL
 timestamp,bssid,rssi
-$(date +%s),66:77:88:99:AA:BB,-60
-$(date +%s),66:77:88:99:AA:BC,-80
+$CURRENT_TIMESTAMP,66:77:88:99:AA:BB,-60
 EOL
 
-echo "Sending test data to /api/signals/submit..."
+    echo "Sending test data to /api/signals/submit..."
 
-# Send data to /api/signals/submit
-RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/submit)
-echo "Response from /api/signals/submit: $RESPONSE"
+    # /api/signals/submit にデータを送信
+    RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/submit)
+    echo "Response from /api/signals/submit: $RESPONSE"
 
-echo "Sending test data to /api/signals/server..."
+    echo "Sending test data to /api/signals/server..."
 
-# Send data to /api/signals/server
-RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/server)
-echo "Response from /api/signals/server: $RESPONSE"
+    # /api/signals/server にデータを送信
+    RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/server)
+    echo "Response from /api/signals/server: $RESPONSE"
 
-# Clean up
+    echo ""
+done
+
+# 後片付け
 rm -f $BLE_CSV_FILE $WIFI_CSV_FILE
 
-echo "Test completed."
+echo "全てのテストが完了しました。"
