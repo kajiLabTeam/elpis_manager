@@ -178,7 +178,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// RSSIがしきい値以下（信号が弱い）; 照会サーバに問い合わせる必要がある
+					// RSSIがしきい値以下（信号が弱い）
 					foundWeakSignal = true
 					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					// 他のレコードをチェック
@@ -199,13 +199,8 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 			return
 		}
 	} else {
-		// デバイスが見つからなかった場合
-		log.Println("BLEデータにデバイスが見つからなかったため、照会サーバに転送します。")
-		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
-			return
-		}
+		// デバイスが見つからなかった場合、何もしない
+		log.Println("BLEデータにデバイスが見つかりませんでした。何も行いません。")
 	}
 
 	response := UploadResponse{Message: "信号データを受信しました"}
@@ -263,7 +258,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// RSSIがしきい値以下（信号が弱い）; 照会サーバに問い合わせる必要がある
+					// RSSIがしきい値以下（信号が弱い）
 					foundWeakSignal = true
 					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					// 他のレコードをチェック
@@ -284,13 +279,8 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 			return
 		}
 	} else {
-		// デバイスが見つからなかった場合
-		log.Println("BLEデータにデバイスが見つからなかったため、照会サーバに転送します。")
-		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
-			return
-		}
+		// デバイスが見つからなかった場合、何もしない
+		log.Println("BLEデータにデバイスが見つかりませんでした。何も行いません。")
 	}
 
 	response := ServerResponse{PercentageProcessed: 100}
