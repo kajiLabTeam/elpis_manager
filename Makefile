@@ -43,6 +43,9 @@ restart-manager: ## Restart only the manager service
 restart-proxy: ## Restart only the proxy service
 	docker compose restart proxy
 
+e2e-test: ## Run end-to-end tests by executing test_send_data.sh
+	./test_send_data.sh
+
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
 	@echo
