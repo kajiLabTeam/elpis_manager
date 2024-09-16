@@ -15,9 +15,6 @@ CMD_PATH := ./cmd/server.go
 # Default flags for running Go services locally
 GO_FLAGS ?= -mode=local -port=8010
 
-
-all: up ## Build and start the services
-
 build: ## Build the Docker images for all services
 	docker compose build
 
@@ -27,31 +24,10 @@ up: ## Start all services in the background
 down: ## Stop all running services
 	docker compose down
 
-logs: ## Tail logs for all services
-	docker compose logs -f
-
 restart: down up ## Restart all services
 
 clean: ## Stop all services and remove containers, networks, and volumes
 	docker compose down --volumes --remove-orphans
-
-ps: ## List all running services
-	docker compose ps
-
-proxy: ## Run only the proxy service
-	docker compose up -d proxy
-
-manager: ## Run only the manager service
-	docker compose up -d manager
-
-postgres_manager: ## Run only the postgres_manager service
-	docker compose up -d postgres_manager
-
-postgres_proxy: ## Run only the postgres_proxy service
-	docker compose up -d postgres_proxy
-
-vite-app: ## Run only the vite-app service
-	docker compose up -d vite-app
 
 proxy-local: ## Run the proxy service locally with command-line flags
 	@echo "Running Proxy Service Locally..."
@@ -60,6 +36,12 @@ proxy-local: ## Run the proxy service locally with command-line flags
 manager-local: ## Run the manager service locally with command-line flags
 	@echo "Running Manager Service Locally..."
 	cd ./manager && go run $(CMD_PATH) $(GO_FLAGS)
+
+restart-manager: ## Restart only the manager service
+	docker compose restart manager
+
+restart-proxy: ## Restart only the proxy service
+	docker compose restart proxy
 
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
