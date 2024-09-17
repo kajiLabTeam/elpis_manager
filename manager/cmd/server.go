@@ -427,6 +427,51 @@ func removeUserPresence(db *sql.DB, userID int) error {
 	return nil
 }
 
+// クリーンアップ処理を行う関数
+func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
+	for {
+		// 現在時刻から閾値を引いた時間を計算
+		cutoffTime := time.Now().Add(-threshold)
+
+		// user_current_presenceテーブルから15分以上更新されていないユーザーを取得
+		rows, err := db.Query(`
+			SELECT user_id, room_id, last_seen 
+			FROM user_current_presence 
+			WHERE last_seen < $1
+		`, cutoffTime)
+		if err != nil {
+			log.Printf("クリーンアップ処理中のクエリエラー: %v", err)
+			continue
+		}
+
+		var userID, roomID int
+		var lastSeen time.Time
+		var usersToDelete []int
+
+		for rows.Next() {
+			if err := rows.Scan(&userID, &roomID, &lastSeen); err != nil {
+				log.Printf("クリーンアップ処理中のスキャンエラー: %v", err)
+				continue
+			}
+			usersToDelete = append(usersToDelete, userID)
+			log.Printf("ユーザーID %d の在室情報を削除対象として検出 (最終受信時刻: %s)", userID, lastSeen)
+		}
+		rows.Close()
+
+		// 対象ユーザーの在室情報を削除
+		for _, uid := range usersToDelete {
+			err := removeUserPresence(db, uid)
+			if err != nil {
+				log.Printf("ユーザーID %d の在室情報削除エラー: %v", uid, err)
+			} else {
+				log.Printf("ユーザーID %d の在室情報を削除しました。", uid)
+			}
+		}
+
+		time.Sleep(5 * time.Minute)
+	}
+}
+
 // /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// handleSignalsSubmit と同じ処理を行う
@@ -517,6 +562,9 @@ func main() {
 	} else {
 		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
+
+	// クリーンアップ処理をバックグラウンドで開始（15分の閾値）
+	go cleanUpOldPresence(db, 15*time.Minute)
 
 	// エンドポイントのハンドラを設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
