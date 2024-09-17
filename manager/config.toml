@@ -1,21 +1,18 @@
-# モードの設定: "default" または "local"
-mode = "default"
+# モードの設定: "docker" または "local"
+mode = "docker"
 
 # サーバがリッスンするポート番号
 server_port = "8010"
 
-[Default]
+[Docker]
 proxy_url = "http://proxy:8080"
-manager_url = "http://manager"
 db_conn_str = "postgres://myuser:mypassword@postgres_manager:5432/managerdb?sslmode=disable"
 skip_registration = false
 
 [Local]
 proxy_url = "http://localhost:8080"
-manager_url = "http://localhost"
 db_conn_str = "postgres://myuser:mypassword@localhost:5433/managerdb?sslmode=disable"
 skip_registration = false
 
 [Registration]
 system_uri = "http://manager"
-port = 8010

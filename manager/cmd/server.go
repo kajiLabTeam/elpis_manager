@@ -25,12 +25,12 @@ import (
 type Config struct {
 	Mode         string
 	ServerPort   string `toml:"server_port"`
-	Default      DefaultConfig
+	Docker       DockerConfig
 	Local        LocalConfig
 	Registration RegistrationConfig
 }
 
-type DefaultConfig struct {
+type DockerConfig struct {
 	ProxyURL         string `toml:"proxy_url"`
 	DBConnStr        string `toml:"db_conn_str"`
 	SkipRegistration bool   `toml:"skip_registration"`
@@ -333,7 +333,7 @@ func main() {
 	}
 
 	// モードとポートのコマンドラインフラグを定義
-	mode := flag.String("mode", config.Mode, "アプリケーションの実行モード (default または local)")
+	mode := flag.String("mode", config.Mode, "アプリケーションの実行モード (docker または local)")
 	port := flag.String("port", config.ServerPort, "サーバを実行するポート")
 	flag.Parse()
 
@@ -346,9 +346,9 @@ func main() {
 		dbConnStr = config.Local.DBConnStr
 		skipRegistration = config.Local.SkipRegistration
 	} else {
-		proxyURL = config.Default.ProxyURL
-		dbConnStr = config.Default.DBConnStr
-		skipRegistration = config.Default.SkipRegistration
+		proxyURL = config.Docker.ProxyURL
+		dbConnStr = config.Docker.DBConnStr
+		skipRegistration = config.Docker.SkipRegistration
 	}
 
 	// 設定値を出力
