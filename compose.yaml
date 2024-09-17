@@ -37,7 +37,7 @@ services:
       - ./manager/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d managerdb"]
-      interval: 5s
+      interval: 10s
       retries: 3
 
   postgres_proxy:
@@ -52,7 +52,7 @@ services:
       - ./proxy/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d proxydb"]
-      interval: 5s
+      interval: 10s
       retries: 3
 
   vite-app:
