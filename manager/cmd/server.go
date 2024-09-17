@@ -338,26 +338,31 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	currentTime := time.Now()
 
 	if foundStrongSignal {
-		// 強い信号が検出されたので、在室情報をデータベースに保存
-		log.Println("強い信号でデバイスが存在します。在室情報を更新します。")
+		// 強い信号が検出されたので、在室情報をデータベースに保存または更新
+		log.Println("強い信号が検出されたため、在室情報を更新します。")
 		err = updateUserPresence(db, userID, detectedRoomID, currentTime)
 		if err != nil {
 			log.Printf("在室情報の更新に失敗しました: %v", err)
+		} else {
+			log.Printf("ユーザーID %d の在室情報をRoomID %d に更新しました。", userID, detectedRoomID)
 		}
 	} else if foundWeakSignal {
 		// 弱い信号が検出されたので、照会サーバに問い合わせる
-		log.Println("弱い信号が検出されたため、照会サーバに問い合わせます。")
+		log.Println("弱い信号が検出されたため、照会サーバにファイルを転送します。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
+		log.Println("照会サーバへのファイル転送が完了しました。")
 	} else {
 		// デバイスが見つからなかった場合、在室情報を削除または更新
-		log.Println("BLEデータにデバイスが見つかりませんでした。在室情報を更新します。")
+		log.Println("BLEデータにデバイスが見つからなかったため、在室情報を削除します。")
 		err = removeUserPresence(db, userID)
 		if err != nil {
 			log.Printf("在室情報の削除に失敗しました: %v", err)
+		} else {
+			log.Printf("ユーザーID %d の在室情報を削除しました。", userID)
 		}
 	}
 
@@ -369,13 +374,23 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 // 在室情報を更新する関数
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
 	// user_current_presenceテーブルをアップサート（挿入または更新）
-	_, err := db.Exec(`
+	result, err := db.Exec(`
         INSERT INTO user_current_presence (user_id, room_id, last_seen)
         VALUES ($1, $2, $3)
         ON CONFLICT (user_id) DO UPDATE SET room_id = $2, last_seen = $3
     `, userID, roomID, lastSeen)
 	if err != nil {
-		return err
+		return fmt.Errorf("user_current_presenceテーブルのアップサートエラー: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
+	}
+	if rowsAffected == 0 {
+		log.Printf("user_current_presenceテーブルへの変更がありません。")
+	} else {
+		log.Printf("user_current_presenceテーブルに%v行が影響されました。", rowsAffected)
 	}
 
 	// user_presence_logsテーブルにログを追加
@@ -383,13 +398,33 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
         INSERT INTO user_presence_logs (user_id, room_id, timestamp)
         VALUES ($1, $2, $3)
     `, userID, roomID, lastSeen)
-	return err
+	if err != nil {
+		return fmt.Errorf("user_presence_logsテーブルへの挿入エラー: %v", err)
+	}
+
+	log.Printf("user_presence_logsテーブルにユーザーID %d の在室ログを追加しました。", userID)
+	return nil
 }
 
 // 在室情報を削除する関数
 func removeUserPresence(db *sql.DB, userID int) error {
-	_, err := db.Exec("DELETE FROM user_current_presence WHERE user_id = $1", userID)
-	return err
+	// user_current_presenceテーブルからユーザーの在室情報を削除
+	result, err := db.Exec("DELETE FROM user_current_presence WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("user_current_presenceテーブルからの削除エラー: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
+	}
+	if rowsAffected == 0 {
+		log.Printf("user_current_presenceテーブルにユーザーID %d の在室情報が存在しません。", userID)
+	} else {
+		log.Printf("user_current_presenceテーブルからユーザーID %d の在室情報を削除しました。", userID)
+	}
+
+	return nil
 }
 
 // /api/signals/server エンドポイントの処理
@@ -483,6 +518,7 @@ func main() {
 		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
 
+	// エンドポイントのハンドラを設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
