@@ -47,6 +47,21 @@ CREATE TABLE query_server (
     url VARCHAR(255) NOT NULL
 );
 
+-- ユーザーの在室ログを保存するテーブル
+CREATE TABLE user_presence_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    room_id INT REFERENCES rooms(room_id),
+    timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ユーザーごとの最新の在室状況を保存するテーブル
+CREATE TABLE user_current_presence (
+    user_id INT PRIMARY KEY REFERENCES users(id),
+    room_id INT REFERENCES rooms(room_id),
+    last_seen TIMESTAMP NOT NULL
+);
+
 -- ユーザーのデータを挿入
 INSERT INTO Users (user_id, password) VALUES
 ('user1', 'password1'),

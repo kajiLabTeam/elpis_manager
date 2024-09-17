@@ -62,6 +62,23 @@ type RegisterRequest struct {
 	Port      int    `json:"port"`
 }
 
+// BeaconRecord はBLEデータの1レコードを表します
+type BeaconRecord struct {
+	Timestamp time.Time
+	UUID      string
+	RSSI      int
+	RoomID    int
+}
+
+// WiFiRecord はWiFiデータの1レコードを表します
+type WiFiRecord struct {
+	Timestamp time.Time
+	SSID      string
+	BSSID     string
+	RSSI      int
+	RoomID    int
+}
+
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
@@ -129,31 +146,34 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 	return nil
 }
 
-// beaconsテーブルからすべてのUUIDとそのRSSIしきい値を取得
-func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
-	rows, err := db.Query("SELECT service_uuid, rssi FROM beacons")
+// beaconsテーブルからすべてのUUIDとそのRSSIしきい値、room_idを取得
+func getUUIDsAndThresholds(db *sql.DB) (map[string]int, map[string]int, error) {
+	rows, err := db.Query("SELECT service_uuid, rssi, room_id FROM beacons")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 
 	// UUIDをRSSIしきい値にマッピング
 	uuidThresholds := make(map[string]int)
+	uuidRoomIDs := make(map[string]int)
 	for rows.Next() {
 		var uuid string
 		var threshold int
-		if err := rows.Scan(&uuid, &threshold); err != nil {
-			return nil, err
+		var roomID int
+		if err := rows.Scan(&uuid, &threshold, &roomID); err != nil {
+			return nil, nil, err
 		}
 		uuid = strings.TrimSpace(uuid) // 空白を除去
 		uuidThresholds[uuid] = threshold
-		log.Printf("UUIDをロード: %s, RSSIしきい値: %d", uuid, threshold)
+		uuidRoomIDs[uuid] = roomID
+		log.Printf("UUIDをロード: %s, RSSIしきい値: %d, RoomID: %d", uuid, threshold, roomID)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return uuidThresholds, nil
+	return uuidThresholds, uuidRoomIDs, nil
 }
 
 // ユーザIDを取得する関数（Basic認証を使用）
@@ -164,6 +184,16 @@ func getUserID(r *http.Request) string {
 		username = "anonymous"
 	}
 	return username
+}
+
+// ユーザーIDからデータベースのユーザーIDを取得
+func getUserIDFromDB(db *sql.DB, username string) (int, error) {
+	var userID int
+	err := db.QueryRow("SELECT id FROM users WHERE user_id = $1", username).Scan(&userID)
+	if err != nil {
+		return 0, err
+	}
+	return userID, nil
 }
 
 // ファイルを保存するヘルパー関数
@@ -186,7 +216,7 @@ func saveUploadedFile(file multipart.File, path string) error {
 }
 
 // /api/signals/submit エンドポイントの処理
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// リクエストの最大メモリを設定（必要に応じて調整）
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
@@ -208,14 +238,21 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	defer bleFile.Close()
 
 	// ユーザIDを取得
-	userID := getUserID(r)
+	username := getUserID(r)
+
+	// データベースからユーザーIDを取得
+	userID, err := getUserIDFromDB(db, username)
+	if err != nil {
+		http.Error(w, "ユーザーが見つかりません", http.StatusUnauthorized)
+		return
+	}
 
 	// 現在の日付を取得
 	currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD
 
 	// 保存先ディレクトリを構築
 	baseDir := "./uploads"
-	userDir := filepath.Join(baseDir, userID)
+	userDir := filepath.Join(baseDir, username)
 	dateDir := filepath.Join(userDir, currentDate)
 
 	// ディレクトリが存在しない場合は作成
@@ -268,9 +305,11 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 	foundStrongSignal := false
 	foundWeakSignal := false
+	var detectedRoomID int
 
 	for _, record := range bleRecords {
 		if len(record) > 2 {
+			// 時刻, UUID, RSSI の順に想定
 			uuid := strings.TrimSpace(record[1])
 			rssiStr := strings.TrimSpace(record[2])
 			rssiValue, err := strconv.Atoi(rssiStr)
@@ -283,6 +322,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 				if rssiValue > threshold {
 					// RSSIがしきい値より大きい（信号が強い）; デバイスが存在すると判断
 					foundStrongSignal = true
+					detectedRoomID = uuidRoomIDs[uuid]
 					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
@@ -295,9 +335,15 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 		}
 	}
 
+	currentTime := time.Now()
+
 	if foundStrongSignal {
-		// 強い信号が検出されたので、照会サーバに問い合わせる必要はない
-		log.Println("強い信号でデバイスが存在します。")
+		// 強い信号が検出されたので、在室情報をデータベースに保存
+		log.Println("強い信号でデバイスが存在します。在室情報を更新します。")
+		err = updateUserPresence(db, userID, detectedRoomID, currentTime)
+		if err != nil {
+			log.Printf("在室情報の更新に失敗しました: %v", err)
+		}
 	} else if foundWeakSignal {
 		// 弱い信号が検出されたので、照会サーバに問い合わせる
 		log.Println("弱い信号が検出されたため、照会サーバに問い合わせます。")
@@ -307,8 +353,12 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 			return
 		}
 	} else {
-		// デバイスが見つからなかった場合、何もしない
-		log.Println("BLEデータにデバイスが見つかりませんでした。何も行いません。")
+		// デバイスが見つからなかった場合、在室情報を削除または更新
+		log.Println("BLEデータにデバイスが見つかりませんでした。在室情報を更新します。")
+		err = removeUserPresence(db, userID)
+		if err != nil {
+			log.Printf("在室情報の削除に失敗しました: %v", err)
+		}
 	}
 
 	response := UploadResponse{Message: "信号データを受信しました"}
@@ -316,10 +366,36 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	json.NewEncoder(w).Encode(response)
 }
 
+// 在室情報を更新する関数
+func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
+	// user_current_presenceテーブルをアップサート（挿入または更新）
+	_, err := db.Exec(`
+        INSERT INTO user_current_presence (user_id, room_id, last_seen)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id) DO UPDATE SET room_id = $2, last_seen = $3
+    `, userID, roomID, lastSeen)
+	if err != nil {
+		return err
+	}
+
+	// user_presence_logsテーブルにログを追加
+	_, err = db.Exec(`
+        INSERT INTO user_presence_logs (user_id, room_id, timestamp)
+        VALUES ($1, $2, $3)
+    `, userID, roomID, lastSeen)
+	return err
+}
+
+// 在室情報を削除する関数
+func removeUserPresence(db *sql.DB, userID int) error {
+	_, err := db.Exec("DELETE FROM user_current_presence WHERE user_id = $1", userID)
+	return err
+}
+
 // /api/signals/server エンドポイントの処理
-func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// handleSignalsSubmit と同じ処理を行う
-	handleSignalsSubmit(w, r, proxyURL, uuidThresholds)
+	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 }
 
 func main() {
@@ -367,7 +443,7 @@ func main() {
 	defer db.Close()
 
 	// データベースからUUIDとRSSIしきい値を取得
-	uuidThresholds, err := getUUIDsAndThresholds(db)
+	uuidThresholds, uuidRoomIDs, err := getUUIDsAndThresholds(db)
 	if err != nil {
 		log.Fatalf("UUIDとしきい値を取得できませんでした: %v\n", err)
 	}
@@ -408,10 +484,10 @@ func main() {
 	}
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsSubmit(w, r, proxyURL, uuidThresholds)
+		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsServer(w, r, proxyURL, uuidThresholds)
+		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
