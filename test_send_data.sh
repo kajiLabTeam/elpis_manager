@@ -17,6 +17,10 @@ RSSI_VALUES=(-65 -64 -66 0 0)  # DeviceNotFoundとNoBLEDataの場合はRSSI値�
 # しきい値（データベースに設定されている値と一致させてください）
 THRESHOLD=-65
 
+# Basic認証のユーザ名とパスワード（パスワードは不要ですが、curlの仕様上指定が必要です）
+BASIC_AUTH_USER="user1"
+BASIC_AUTH_PASS="password"  # 任意の値
+
 # 各テストケースを実行
 for i in "${!TEST_NAMES[@]}"; do
     TEST_NAME=${TEST_NAMES[$i]}
@@ -52,14 +56,14 @@ EOL
 
     echo "Sending test data to /api/signals/submit..."
 
-    # /api/signals/submit にデータを送信
-    RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/submit)
+    # /api/signals/submit にデータを送信（Basic認証を追加）
+    RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/submit)
     echo "Response from /api/signals/submit: $RESPONSE"
 
     echo "Sending test data to /api/signals/server..."
 
-    # /api/signals/server にデータを送信
-    RESPONSE=$(curl -s -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/server)
+    # /api/signals/server にデータを送信（Basic認証を追加）
+    RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/server)
     echo "Response from /api/signals/server: $RESPONSE"
 
     echo ""

@@ -130,16 +130,14 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 	return uuidThresholds, nil
 }
 
-// ユーザIDを取得する関数（仮の実装）
+// ユーザIDを取得する関数（Basic認証を使用）
 func getUserID(r *http.Request) string {
-	// 実際の実装では、認証情報やセッションからユーザIDを取得します
-	// ここでは、リクエストヘッダー "X-User-ID" から取得すると仮定します
-	userID := r.Header.Get("X-User-ID")
-	if userID == "" {
+	username, _, ok := r.BasicAuth()
+	if !ok || username == "" {
 		// ユーザIDが提供されていない場合は匿名ユーザとします
-		userID = "anonymous"
+		username = "anonymous"
 	}
-	return userID
+	return username
 }
 
 // ファイルを保存するヘルパー関数
@@ -236,11 +234,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 
 	// BLE CSVデータをパース
-	_, err = bleFile.Seek(0, io.SeekStart)
-	if err != nil {
-		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
-		return
-	}
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
@@ -372,11 +365,6 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 
 	// BLE CSVデータをパース
-	_, err = bleFile.Seek(0, io.SeekStart)
-	if err != nil {
-		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
-		return
-	}
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
