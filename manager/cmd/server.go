@@ -12,8 +12,10 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -128,8 +130,45 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, error) {
 	return uuidThresholds, nil
 }
 
+// ユーザIDを取得する関数（仮の実装）
+func getUserID(r *http.Request) string {
+	// 実際の実装では、認証情報やセッションからユーザIDを取得します
+	// ここでは、リクエストヘッダー "X-User-ID" から取得すると仮定します
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		// ユーザIDが提供されていない場合は匿名ユーザとします
+		userID = "anonymous"
+	}
+	return userID
+}
+
+// ファイルを保存するヘルパー関数
+func saveUploadedFile(file multipart.File, path string) error {
+	// ファイルを先頭に戻す
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	outFile, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	if _, err := io.Copy(outFile, file); err != nil {
+		return err
+	}
+	return nil
+}
+
 // /api/signals/submit エンドポイントの処理
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
+	// リクエストの最大メモリを設定（必要に応じて調整）
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
+		return
+	}
+
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "WiFiデータファイルの読み込みエラー", http.StatusBadRequest)
@@ -144,6 +183,51 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 	defer bleFile.Close()
 
+	// ユーザIDを取得
+	userID := getUserID(r)
+
+	// 現在の日付を取得
+	currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD
+
+	// 保存先ディレクトリを構築
+	baseDir := "./uploads"
+	userDir := filepath.Join(baseDir, userID)
+	dateDir := filepath.Join(userDir, currentDate)
+
+	// ディレクトリが存在しない場合は作成
+	if err := os.MkdirAll(dateDir, os.ModePerm); err != nil {
+		http.Error(w, "ディレクトリの作成に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	// ファイル名にタイムスタンプを付加（必要に応じて）
+	timeStamp := time.Now().Format("150405") // HHMMSS
+	wifiFileName := fmt.Sprintf("wifi_data_%s.csv", timeStamp)
+	bleFileName := fmt.Sprintf("ble_data_%s.csv", timeStamp)
+
+	// ファイルを保存
+	wifiFilePath := filepath.Join(dateDir, wifiFileName)
+	bleFilePath := filepath.Join(dateDir, bleFileName)
+
+	if err := saveUploadedFile(wifiFile, wifiFilePath); err != nil {
+		http.Error(w, "WiFiデータの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+	if err := saveUploadedFile(bleFile, bleFilePath); err != nil {
+		http.Error(w, "BLEデータの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	// ファイルポインタをリセット
+	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "WiFiデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
+	if _, err := bleFile.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
+
 	// WiFi CSVデータをパース（このロジックでは使用しないが、妥当性を確認するためにパース）
 	_, err = parseCSV(wifiFile)
 	if err != nil {
@@ -152,6 +236,11 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 
 	// BLE CSVデータをパース
+	_, err = bleFile.Seek(0, io.SeekStart)
+	if err != nil {
+		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
@@ -210,6 +299,12 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 // /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
+	// リクエストの最大メモリを設定（必要に応じて調整）
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
+		return
+	}
+
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
 		http.Error(w, "WiFiデータファイルの読み込みエラー", http.StatusBadRequest)
@@ -224,6 +319,51 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 	defer bleFile.Close()
 
+	// ユーザIDを取得
+	userID := getUserID(r)
+
+	// 現在の日付を取得
+	currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD
+
+	// 保存先ディレクトリを構築
+	baseDir := "./uploads"
+	userDir := filepath.Join(baseDir, userID)
+	dateDir := filepath.Join(userDir, currentDate)
+
+	// ディレクトリが存在しない場合は作成
+	if err := os.MkdirAll(dateDir, os.ModePerm); err != nil {
+		http.Error(w, "ディレクトリの作成に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	// ファイル名にタイムスタンプを付加（必要に応じて）
+	timeStamp := time.Now().Format("150405") // HHMMSS
+	wifiFileName := fmt.Sprintf("wifi_data_%s.csv", timeStamp)
+	bleFileName := fmt.Sprintf("ble_data_%s.csv", timeStamp)
+
+	// ファイルを保存
+	wifiFilePath := filepath.Join(dateDir, wifiFileName)
+	bleFilePath := filepath.Join(dateDir, bleFileName)
+
+	if err := saveUploadedFile(wifiFile, wifiFilePath); err != nil {
+		http.Error(w, "WiFiデータの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+	if err := saveUploadedFile(bleFile, bleFilePath); err != nil {
+		http.Error(w, "BLEデータの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	// ファイルポインタをリセット
+	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "WiFiデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
+	if _, err := bleFile.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
+
 	// WiFi CSVデータをパース（このロジックでは使用しないが、妥当性を確認するためにパース）
 	_, err = parseCSV(wifiFile)
 	if err != nil {
@@ -232,6 +372,11 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string
 	}
 
 	// BLE CSVデータをパース
+	_, err = bleFile.Seek(0, io.SeekStart)
+	if err != nil {
+		http.Error(w, "BLEデータファイルのリセットに失敗しました", http.StatusInternalServerError)
+		return
+	}
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
