@@ -44,7 +44,6 @@ type LocalConfig struct {
 
 type RegistrationConfig struct {
 	SystemURI string `toml:"system_uri"`
-	// Port フィールドは削除しました
 }
 
 // UploadResponse は信号データのアップロードに対するレスポンスを表します
@@ -319,10 +318,8 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, proxyURL string
 
 // /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, proxyURL string, uuidThresholds map[string]int) {
-	// この関数の内容は handleSignalsSubmit と同じなので省略します
-	// 必要に応じて handleSignalsSubmit を再利用するようにリファクタリングも可能です
-	// ここでは、エラーの原因である managerURL の問題に焦点を当てるため、省略します
-	// 実際のコードでは、同様に修正を行ってください
+	// handleSignalsSubmit と同じ処理を行う
+	handleSignalsSubmit(w, r, proxyURL, uuidThresholds)
 }
 
 func main() {
@@ -354,6 +351,14 @@ func main() {
 		skipRegistration = config.Default.SkipRegistration
 	}
 
+	// 設定値を出力
+	log.Printf("モード: %s", *mode)
+	log.Printf("サーバポート: %s", *port)
+	log.Printf("Proxy URL: %s", proxyURL)
+	log.Printf("データベース接続文字列: %s", dbConnStr)
+	log.Printf("skipRegistration: %v", skipRegistration)
+	log.Printf("システムURI: %s", config.Registration.SystemURI)
+
 	// データベースに接続
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
@@ -368,6 +373,7 @@ func main() {
 	}
 
 	if !skipRegistration {
+		log.Println("skipRegistrationがfalseのため、サーバの登録を行います。")
 		registerURL := fmt.Sprintf("%s/api/register", proxyURL)
 
 		// サーバポートを整数に変換
@@ -395,12 +401,18 @@ func main() {
 		if resp.StatusCode != http.StatusOK {
 			log.Fatalf("サーバの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
 		}
+
+		log.Println("サーバの登録が完了しました。")
+	} else {
+		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsSubmit(w, r, proxyURL, uuidThresholds)
 	})
-	// handleSignalsServer の登録も忘れずに行ってください
+	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
+		handleSignalsServer(w, r, proxyURL, uuidThresholds)
+	})
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {
