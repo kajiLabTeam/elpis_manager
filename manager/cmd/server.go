@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -95,6 +96,26 @@ type RoomOccupants struct {
 // CurrentOccupantsResponse は現在の在室者情報のレスポンス構造体
 type CurrentOccupantsResponse struct {
 	Rooms []RoomOccupants `json:"rooms"`
+}
+
+// PresenceSession はユーザーの在室セッションを表す構造体
+type PresenceSession struct {
+	SessionID int        `json:"session_id"`
+	UserID    int        `json:"user_id"`
+	RoomID    int        `json:"room_id"`
+	StartTime time.Time  `json:"start_time"`
+	EndTime   *time.Time `json:"end_time,omitempty"`
+}
+
+// UserPresenceDay は1日ごとのユーザーの在室情報を表す構造体
+type UserPresenceDay struct {
+	Date     string            `json:"date"`
+	Sessions []PresenceSession `json:"sessions"`
+}
+
+// PresenceHistoryResponse は在室履歴のレスポンス構造体
+type PresenceHistoryResponse struct {
+	History []UserPresenceDay `json:"history"`
 }
 
 // multipart.File からCSVファイルをパースする
@@ -233,6 +254,43 @@ func saveUploadedFile(file multipart.File, path string) error {
 	return nil
 }
 
+// セッションを開始する関数
+func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) error {
+	_, err := db.Exec(`
+		INSERT INTO user_presence_sessions (user_id, room_id, start_time)
+		VALUES ($1, $2, $3)
+	`, userID, roomID, startTime)
+	if err != nil {
+		return fmt.Errorf("セッションの開始に失敗しました: %v", err)
+	}
+	log.Printf("ユーザーID %d のセッションを開始しました。RoomID: %d, StartTime: %s", userID, roomID, startTime)
+	return nil
+}
+
+// セッションを終了する関数
+func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
+	result, err := db.Exec(`
+		UPDATE user_presence_sessions
+		SET end_time = $1
+		WHERE user_id = $2 AND end_time IS NULL
+	`, endTime, userID)
+	if err != nil {
+		return fmt.Errorf("セッションの終了に失敗しました: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
+	}
+	if rowsAffected == 0 {
+		log.Printf("ユーザーID %d の現在のセッションが見つかりませんでした。", userID)
+	} else {
+		log.Printf("ユーザーID %d のセッションを終了しました。EndTime: %s", userID, endTime)
+	}
+
+	return nil
+}
+
 // /api/signals/submit エンドポイントの処理
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// リクエストの最大メモリを設定（必要に応じて調整）
@@ -364,6 +422,50 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		} else {
 			log.Printf("ユーザーID %d の在室情報をRoomID %d に更新しました。", userID, detectedRoomID)
 		}
+
+		// セッションの管理
+		// 現在のセッションが存在しない場合は新規セッションを開始
+		var existingSessionID int
+		err = db.QueryRow(`
+			SELECT session_id FROM user_presence_sessions
+			WHERE user_id = $1 AND end_time IS NULL
+		`, userID).Scan(&existingSessionID)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				// セッションが存在しないので新規に開始
+				err = startUserSession(db, userID, detectedRoomID, currentTime)
+				if err != nil {
+					log.Printf("セッションの開始に失敗しました: %v", err)
+				}
+			} else {
+				log.Printf("セッションの確認中にエラーが発生しました: %v", err)
+			}
+		} else {
+			// セッションが既に存在する場合は部屋の変更があれば更新
+			// 現在のセッションのroom_idとdetectedRoomIDが異なる場合
+			var currentRoomID int
+			err = db.QueryRow(`
+				SELECT room_id FROM user_presence_sessions
+				WHERE session_id = $1
+			`, existingSessionID).Scan(&currentRoomID)
+
+			if err != nil {
+				log.Printf("現在のセッションのroom_id取得に失敗しました: %v", err)
+			} else if currentRoomID != detectedRoomID {
+				// 部屋が変更されたので現在のセッションを終了し、新しいセッションを開始
+				err = endUserSession(db, userID, currentTime)
+				if err != nil {
+					log.Printf("セッションの終了に失敗しました: %v", err)
+				} else {
+					err = startUserSession(db, userID, detectedRoomID, currentTime)
+					if err != nil {
+						log.Printf("新しいセッションの開始に失敗しました: %v", err)
+					}
+				}
+			}
+		}
+
 	} else if foundWeakSignal {
 		// 弱い信号が検出されたので、照会サーバに問い合わせる
 		log.Println("弱い信号が検出されたため、照会サーバにファイルを転送します。")
@@ -382,6 +484,12 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		} else {
 			log.Printf("ユーザーID %d の在室情報を削除しました。", userID)
 		}
+
+		// セッションの終了
+		err = endUserSession(db, userID, currentTime)
+		if err != nil {
+			log.Printf("セッションの終了に失敗しました: %v", err)
+		}
 	}
 
 	response := UploadResponse{Message: "信号データを受信しました"}
@@ -393,10 +501,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
 	// user_current_presenceテーブルをアップサート（挿入または更新）
 	result, err := db.Exec(`
-        INSERT INTO user_current_presence (user_id, room_id, last_seen)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (user_id) DO UPDATE SET room_id = $2, last_seen = $3
-    `, userID, roomID, lastSeen)
+		INSERT INTO user_current_presence (user_id, room_id, last_seen)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET room_id = $2, last_seen = $3
+	`, userID, roomID, lastSeen)
 	if err != nil {
 		return fmt.Errorf("user_current_presenceテーブルのアップサートエラー: %v", err)
 	}
@@ -413,9 +521,9 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 
 	// user_presence_logsテーブルにログを追加
 	_, err = db.Exec(`
-        INSERT INTO user_presence_logs (user_id, room_id, timestamp)
-        VALUES ($1, $2, $3)
-    `, userID, roomID, lastSeen)
+		INSERT INTO user_presence_logs (user_id, room_id, timestamp)
+		VALUES ($1, $2, $3)
+	`, userID, roomID, lastSeen)
 	if err != nil {
 		return fmt.Errorf("user_presence_logsテーブルへの挿入エラー: %v", err)
 	}
@@ -483,6 +591,14 @@ func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
 				log.Printf("ユーザーID %d の在室情報削除エラー: %v", uid, err)
 			} else {
 				log.Printf("ユーザーID %d の在室情報を削除しました。", uid)
+
+				// セッションを終了
+				err = endUserSession(db, uid, time.Now())
+				if err != nil {
+					log.Printf("ユーザーID %d のセッション終了エラー: %v", uid, err)
+				} else {
+					log.Printf("ユーザーID %d の在室から離れたことをログに記録しました。", uid)
+				}
 			}
 		}
 
@@ -494,6 +610,94 @@ func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// handleSignalsSubmit と同じ処理を行う
 	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+}
+
+// /api/presence_history エンドポイントの処理
+func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	// クエリパラメータからユーザーIDを取得（必要に応じて認証を強化）
+	userIDStr := r.URL.Query().Get("user_id")
+	if userIDStr == "" {
+		http.Error(w, "user_id パラメータが必要です", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		http.Error(w, "無効な user_id パラメータです", http.StatusBadRequest)
+		return
+	}
+
+	// 1ヶ月前の日付を計算
+	oneMonthAgo := time.Now().AddDate(0, -1, 0)
+
+	// 1ヶ月分のセッションを取得
+	rows, err := db.Query(`
+		SELECT session_id, user_id, room_id, start_time, end_time
+		FROM user_presence_sessions
+		WHERE user_id = $1 AND start_time >= $2
+		ORDER BY start_time
+	`, userID, oneMonthAgo)
+	if err != nil {
+		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		log.Printf("在室履歴取得クエリエラー: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var sessions []PresenceSession
+	for rows.Next() {
+		var session PresenceSession
+		var endTime sql.NullTime
+		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime); err != nil {
+			log.Printf("在室履歴のスキャンエラー: %v", err)
+			continue
+		}
+		if endTime.Valid {
+			session.EndTime = &endTime.Time
+		} else {
+			session.EndTime = nil
+		}
+		sessions = append(sessions, session)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "在室履歴の読み取り中にエラーが発生しました", http.StatusInternalServerError)
+		log.Printf("rows.Err(): %v", err)
+		return
+	}
+
+	// セッションを日付ごとにグループ化
+	historyMap := make(map[string][]PresenceSession)
+	for _, session := range sessions {
+		date := session.StartTime.Format("2006-01-02")
+		historyMap[date] = append(historyMap[date], session)
+	}
+
+	// マップをスライスに変換
+	var history []UserPresenceDay
+	for date, sessions := range historyMap {
+		history = append(history, UserPresenceDay{
+			Date:     date,
+			Sessions: sessions,
+		})
+	}
+
+	// 日付でソート（昇順）
+	sort.Slice(history, func(i, j int) bool {
+		return history[i].Date < history[j].Date
+	})
+
+	response := PresenceHistoryResponse{
+		History: history,
+	}
+
+	// JSONとしてレスポンスを返す
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
+	}
 }
 
 // /api/current_occupants エンドポイントの処理
@@ -675,6 +879,11 @@ func main() {
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+	})
+
+	// 新しいエンドポイントのハンドラを設定
+	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
+		handlePresenceHistory(w, r, db)
 	})
 
 	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {

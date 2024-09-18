@@ -1,6 +1,6 @@
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
-    user_id VARCHAR(20) NOT NULL,
+    user_id VARCHAR(20) NOT NULL UNIQUE,
     password VARCHAR(20)
 );
 
@@ -60,6 +60,15 @@ CREATE TABLE user_current_presence (
     user_id INT PRIMARY KEY REFERENCES users(id),
     room_id INT REFERENCES rooms(room_id),
     last_seen TIMESTAMP NOT NULL
+);
+
+-- ユーザーの在室セッションを保存するテーブル
+CREATE TABLE user_presence_sessions (
+    session_id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES Users(id),
+    room_id INT REFERENCES rooms(room_id),
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP
 );
 
 -- ユーザーのデータを挿入
