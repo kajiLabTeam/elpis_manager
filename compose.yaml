@@ -5,11 +5,14 @@ services:
       - 8080:8080
     volumes:
       - ./proxy:/app
+      - /etc/localtime:/etc/localtime:ro
     working_dir: /app
     depends_on:
       postgres_proxy:
         condition: service_healthy
     command: go run ./cmd/server.go
+    environment:
+      - TZ=Asia/Tokyo
 
   manager:
     image: golang:1.22.5-bookworm
@@ -17,6 +20,7 @@ services:
       - 8010:8010
     volumes:
       - ./manager:/app
+      - /etc/localtime:/etc/localtime:ro
     working_dir: /app
     depends_on:
       proxy:
@@ -24,6 +28,8 @@ services:
       postgres_manager:
         condition: service_healthy
     command: go run ./cmd/server.go
+    environment:
+      - TZ=Asia/Tokyo
 
   postgres_manager:
     image: postgres:16.3-bookworm
@@ -31,10 +37,12 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: managerdb
+      TZ: Asia/Tokyo
     ports:
       - 5433:5432
     volumes:
       - ./manager/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d managerdb"]
       interval: 15s
@@ -46,10 +54,12 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: proxydb
+      TZ: Asia/Tokyo
     ports:
       - 5434:5432
     volumes:
       - ./proxy/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d proxydb"]
       interval: 15s
@@ -60,10 +70,13 @@ services:
     volumes:
       - ./web:/app
       - /app/node_modules
+      - /etc/localtime:/etc/localtime:ro
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     ports:
       - '5173:5173'
+    environment:
+      - TZ=Asia/Tokyo
 
 networks:
   elpis_network:
