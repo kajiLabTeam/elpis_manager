@@ -64,7 +64,7 @@ type PresenceSession struct {
 	UserID    int        `json:"user_id"`
 	RoomID    int        `json:"room_id"`
 	StartTime time.Time  `json:"start_time"`
-	EndTime   *time.Time `json:"end_time,omitempty"`
+	EndTime   *time.Time `json:"end_time"`
 	LastSeen  time.Time  `json:"last_seen"`
 }
 
