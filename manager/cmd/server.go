@@ -79,6 +79,24 @@ type WiFiRecord struct {
 	RoomID    int
 }
 
+// CurrentOccupant は現在の在室者情報を表す構造体
+type CurrentOccupant struct {
+	UserID   string    `json:"user_id"`
+	LastSeen time.Time `json:"last_seen"`
+}
+
+// RoomOccupants は部屋ごとの在室者情報を表す構造体
+type RoomOccupants struct {
+	RoomID    int               `json:"room_id"`
+	RoomName  string            `json:"room_name"`
+	Occupants []CurrentOccupant `json:"occupants"`
+}
+
+// CurrentOccupantsResponse は現在の在室者情報のレスポンス構造体
+type CurrentOccupantsResponse struct {
+	Rooms []RoomOccupants `json:"rooms"`
+}
+
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
@@ -433,7 +451,7 @@ func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
 		// 現在時刻から閾値を引いた時間を計算
 		cutoffTime := time.Now().Add(-threshold)
 
-		// user_current_presenceテーブルから15分以上更新されていないユーザーを取得
+		// user_current_presenceテーブルから閾値以上に更新されていないユーザーを取得
 		rows, err := db.Query(`
 			SELECT user_id, room_id, last_seen 
 			FROM user_current_presence 
@@ -476,6 +494,91 @@ func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
 	// handleSignalsSubmit と同じ処理を行う
 	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+}
+
+// /api/current_occupants エンドポイントの処理
+func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	// 現在の在室者情報を取得するクエリ（LEFT JOINを使用）
+	query := `
+		SELECT 
+			rooms.room_id, 
+			rooms.room_name, 
+			users.user_id, 
+			user_current_presence.last_seen
+		FROM 
+			rooms
+		LEFT JOIN 
+			user_current_presence ON rooms.room_id = user_current_presence.room_id
+		LEFT JOIN 
+			users ON user_current_presence.user_id = users.id
+		ORDER BY 
+			rooms.room_id, users.user_id
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		http.Error(w, "在室者情報の取得に失敗しました", http.StatusInternalServerError)
+		log.Printf("在室者情報取得クエリエラー: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	// 部屋ごとに在室者をまとめるマップ
+	roomsMap := make(map[int]RoomOccupants)
+
+	for rows.Next() {
+		var roomID int
+		var roomName string
+		var userID sql.NullString
+		var lastSeen sql.NullTime
+
+		if err := rows.Scan(&roomID, &roomName, &userID, &lastSeen); err != nil {
+			log.Printf("行のスキャンエラー: %v", err)
+			continue
+		}
+
+		// マップに部屋が存在しない場合は新規作成
+		if _, exists := roomsMap[roomID]; !exists {
+			roomsMap[roomID] = RoomOccupants{
+				RoomID:    roomID,
+				RoomName:  roomName,
+				Occupants: []CurrentOccupant{},
+			}
+		}
+
+		// 在室者が存在する場合のみ occupants に追加
+		if userID.Valid {
+			occupant := CurrentOccupant{
+				UserID:   userID.String,
+				LastSeen: lastSeen.Time,
+			}
+			room := roomsMap[roomID]
+			room.Occupants = append(room.Occupants, occupant)
+			roomsMap[roomID] = room
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "在室者情報の読み取り中にエラーが発生しました", http.StatusInternalServerError)
+		log.Printf("rows.Err(): %v", err)
+		return
+	}
+
+	// マップをスライスに変換
+	response := CurrentOccupantsResponse{
+		Rooms: []RoomOccupants{},
+	}
+	for _, room := range roomsMap {
+		response.Rooms = append(response.Rooms, room)
+	}
+
+	// JSONとしてレスポンスを返す
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
+	}
 }
 
 func main() {
@@ -572,6 +675,10 @@ func main() {
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+	})
+
+	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
+		handleCurrentOccupants(w, r, db)
 	})
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
