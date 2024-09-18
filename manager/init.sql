@@ -47,14 +47,6 @@ CREATE TABLE query_server (
     url VARCHAR(255) NOT NULL
 );
 
--- ユーザーの在室ログを保存するテーブル
-CREATE TABLE user_presence_logs (
-    id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id),
-    room_id INT REFERENCES rooms(room_id),
-    timestamp TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
 -- ユーザーの在室セッションを保存するテーブル
 CREATE TABLE user_presence_sessions (
     session_id SERIAL PRIMARY KEY,
