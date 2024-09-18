@@ -52,32 +52,31 @@ type UploadResponse struct {
 	Message string `json:"message"`
 }
 
-// ServerResponse は信号サーバに対するレスポンスを表します
-type ServerResponse struct {
-	PercentageProcessed int `json:"percentage_processed"`
-}
-
 // RegisterRequest は登録リクエストのペイロードを表します
 type RegisterRequest struct {
 	SystemURI string `json:"system_uri"`
 	Port      int    `json:"port"`
 }
 
-// BeaconRecord はBLEデータの1レコードを表します
-type BeaconRecord struct {
-	Timestamp time.Time
-	UUID      string
-	RSSI      int
-	RoomID    int
+// PresenceSession はユーザーの在室セッションを表す構造体
+type PresenceSession struct {
+	SessionID int        `json:"session_id"`
+	UserID    int        `json:"user_id"`
+	RoomID    int        `json:"room_id"`
+	StartTime time.Time  `json:"start_time"`
+	EndTime   *time.Time `json:"end_time,omitempty"`
+	LastSeen  time.Time  `json:"last_seen"`
 }
 
-// WiFiRecord はWiFiデータの1レコードを表します
-type WiFiRecord struct {
-	Timestamp time.Time
-	SSID      string
-	BSSID     string
-	RSSI      int
-	RoomID    int
+// UserPresenceDay は1日ごとのユーザーの在室情報を表す構造体
+type UserPresenceDay struct {
+	Date     string            `json:"date"`
+	Sessions []PresenceSession `json:"sessions"`
+}
+
+// PresenceHistoryResponse は在室履歴のレスポンス構造体
+type PresenceHistoryResponse struct {
+	History []UserPresenceDay `json:"history"`
 }
 
 // CurrentOccupant は現在の在室者情報を表す構造体
@@ -96,26 +95,6 @@ type RoomOccupants struct {
 // CurrentOccupantsResponse は現在の在室者情報のレスポンス構造体
 type CurrentOccupantsResponse struct {
 	Rooms []RoomOccupants `json:"rooms"`
-}
-
-// PresenceSession はユーザーの在室セッションを表す構造体
-type PresenceSession struct {
-	SessionID int        `json:"session_id"`
-	UserID    int        `json:"user_id"`
-	RoomID    int        `json:"room_id"`
-	StartTime time.Time  `json:"start_time"`
-	EndTime   *time.Time `json:"end_time,omitempty"`
-}
-
-// UserPresenceDay は1日ごとのユーザーの在室情報を表す構造体
-type UserPresenceDay struct {
-	Date     string            `json:"date"`
-	Sessions []PresenceSession `json:"sessions"`
-}
-
-// PresenceHistoryResponse は在室履歴のレスポンス構造体
-type PresenceHistoryResponse struct {
-	History []UserPresenceDay `json:"history"`
 }
 
 // multipart.File からCSVファイルをパースする
@@ -257,8 +236,8 @@ func saveUploadedFile(file multipart.File, path string) error {
 // セッションを開始する関数
 func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) error {
 	_, err := db.Exec(`
-		INSERT INTO user_presence_sessions (user_id, room_id, start_time)
-		VALUES ($1, $2, $3)
+		INSERT INTO user_presence_sessions (user_id, room_id, start_time, last_seen)
+		VALUES ($1, $2, $3, $3)
 	`, userID, roomID, startTime)
 	if err != nil {
 		return fmt.Errorf("セッションの開始に失敗しました: %v", err)
@@ -286,6 +265,30 @@ func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 		log.Printf("ユーザーID %d の現在のセッションが見つかりませんでした。", userID)
 	} else {
 		log.Printf("ユーザーID %d のセッションを終了しました。EndTime: %s", userID, endTime)
+	}
+
+	return nil
+}
+
+// セッションのlast_seenを更新する関数
+func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
+	result, err := db.Exec(`
+		UPDATE user_presence_sessions
+		SET last_seen = $1
+		WHERE user_id = $2 AND end_time IS NULL
+	`, lastSeen, userID)
+	if err != nil {
+		return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
+	}
+	if rowsAffected == 0 {
+		log.Printf("ユーザーID %d のセッションが見つかりませんでした。", userID)
+	} else {
+		log.Printf("ユーザーID %d のlast_seenを更新しました。", userID)
 	}
 
 	return nil
@@ -422,50 +425,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		} else {
 			log.Printf("ユーザーID %d の在室情報をRoomID %d に更新しました。", userID, detectedRoomID)
 		}
-
-		// セッションの管理
-		// 現在のセッションが存在しない場合は新規セッションを開始
-		var existingSessionID int
-		err = db.QueryRow(`
-			SELECT session_id FROM user_presence_sessions
-			WHERE user_id = $1 AND end_time IS NULL
-		`, userID).Scan(&existingSessionID)
-
-		if err != nil {
-			if err == sql.ErrNoRows {
-				// セッションが存在しないので新規に開始
-				err = startUserSession(db, userID, detectedRoomID, currentTime)
-				if err != nil {
-					log.Printf("セッションの開始に失敗しました: %v", err)
-				}
-			} else {
-				log.Printf("セッションの確認中にエラーが発生しました: %v", err)
-			}
-		} else {
-			// セッションが既に存在する場合は部屋の変更があれば更新
-			// 現在のセッションのroom_idとdetectedRoomIDが異なる場合
-			var currentRoomID int
-			err = db.QueryRow(`
-				SELECT room_id FROM user_presence_sessions
-				WHERE session_id = $1
-			`, existingSessionID).Scan(&currentRoomID)
-
-			if err != nil {
-				log.Printf("現在のセッションのroom_id取得に失敗しました: %v", err)
-			} else if currentRoomID != detectedRoomID {
-				// 部屋が変更されたので現在のセッションを終了し、新しいセッションを開始
-				err = endUserSession(db, userID, currentTime)
-				if err != nil {
-					log.Printf("セッションの終了に失敗しました: %v", err)
-				} else {
-					err = startUserSession(db, userID, detectedRoomID, currentTime)
-					if err != nil {
-						log.Printf("新しいセッションの開始に失敗しました: %v", err)
-					}
-				}
-			}
-		}
-
 	} else if foundWeakSignal {
 		// 弱い信号が検出されたので、照会サーバに問い合わせる
 		log.Println("弱い信号が検出されたため、照会サーバにファイルを転送します。")
@@ -476,19 +435,21 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		}
 		log.Println("照会サーバへのファイル転送が完了しました。")
 	} else {
-		// デバイスが見つからなかった場合、在室情報を削除または更新
-		log.Println("BLEデータにデバイスが見つからなかったため、在室情報を削除します。")
-		err = removeUserPresence(db, userID)
-		if err != nil {
-			log.Printf("在室情報の削除に失敗しました: %v", err)
-		} else {
-			log.Printf("ユーザーID %d の在室情報を削除しました。", userID)
-		}
-
-		// セッションの終了
+		// デバイスが見つからなかった場合、セッションを終了
+		log.Println("BLEデータにデバイスが見つからなかったため、セッションを終了します。")
 		err = endUserSession(db, userID, currentTime)
 		if err != nil {
 			log.Printf("セッションの終了に失敗しました: %v", err)
+		} else {
+			log.Printf("ユーザーID %d のセッションを終了しました。", userID)
+		}
+	}
+
+	// セッションのlast_seenを更新（強い信号があった場合）
+	if foundStrongSignal {
+		err = updateLastSeen(db, userID, currentTime)
+		if err != nil {
+			log.Printf("last_seenの更新に失敗しました: %v", err)
 		}
 	}
 
@@ -499,111 +460,44 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 
 // 在室情報を更新する関数
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
-	// user_current_presenceテーブルをアップサート（挿入または更新）
-	result, err := db.Exec(`
-		INSERT INTO user_current_presence (user_id, room_id, last_seen)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id) DO UPDATE SET room_id = $2, last_seen = $3
-	`, userID, roomID, lastSeen)
+	// 現在のセッションを取得
+	var existingRoomID int
+	err := db.QueryRow(`
+		SELECT room_id FROM user_presence_sessions
+		WHERE user_id = $1 AND end_time IS NULL
+	`, userID).Scan(&existingRoomID)
+
 	if err != nil {
-		return fmt.Errorf("user_current_presenceテーブルのアップサートエラー: %v", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
-	}
-	if rowsAffected == 0 {
-		log.Printf("user_current_presenceテーブルへの変更がありません。")
-	} else {
-		log.Printf("user_current_presenceテーブルに%v行が影響されました。", rowsAffected)
-	}
-
-	// user_presence_logsテーブルにログを追加
-	_, err = db.Exec(`
-		INSERT INTO user_presence_logs (user_id, room_id, timestamp)
-		VALUES ($1, $2, $3)
-	`, userID, roomID, lastSeen)
-	if err != nil {
-		return fmt.Errorf("user_presence_logsテーブルへの挿入エラー: %v", err)
-	}
-
-	log.Printf("user_presence_logsテーブルにユーザーID %d の在室ログを追加しました。", userID)
-	return nil
-}
-
-// 在室情報を削除する関数
-func removeUserPresence(db *sql.DB, userID int) error {
-	// user_current_presenceテーブルからユーザーの在室情報を削除
-	result, err := db.Exec("DELETE FROM user_current_presence WHERE user_id = $1", userID)
-	if err != nil {
-		return fmt.Errorf("user_current_presenceテーブルからの削除エラー: %v", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
-	}
-	if rowsAffected == 0 {
-		log.Printf("user_current_presenceテーブルにユーザーID %d の在室情報が存在しません。", userID)
-	} else {
-		log.Printf("user_current_presenceテーブルからユーザーID %d の在室情報を削除しました。", userID)
-	}
-
-	return nil
-}
-
-// クリーンアップ処理を行う関数
-func cleanUpOldPresence(db *sql.DB, threshold time.Duration) {
-	for {
-		// 現在時刻から閾値を引いた時間を計算
-		cutoffTime := time.Now().Add(-threshold)
-
-		// user_current_presenceテーブルから閾値以上に更新されていないユーザーを取得
-		rows, err := db.Query(`
-			SELECT user_id, room_id, last_seen 
-			FROM user_current_presence 
-			WHERE last_seen < $1
-		`, cutoffTime)
-		if err != nil {
-			log.Printf("クリーンアップ処理中のクエリエラー: %v", err)
-			continue
-		}
-
-		var userID, roomID int
-		var lastSeen time.Time
-		var usersToDelete []int
-
-		for rows.Next() {
-			if err := rows.Scan(&userID, &roomID, &lastSeen); err != nil {
-				log.Printf("クリーンアップ処理中のスキャンエラー: %v", err)
-				continue
-			}
-			usersToDelete = append(usersToDelete, userID)
-			log.Printf("ユーザーID %d の在室情報を削除対象として検出 (最終受信時刻: %s)", userID, lastSeen)
-		}
-		rows.Close()
-
-		// 対象ユーザーの在室情報を削除
-		for _, uid := range usersToDelete {
-			err := removeUserPresence(db, uid)
+		if err == sql.ErrNoRows {
+			// セッションが存在しないので新規に開始
+			err = startUserSession(db, userID, roomID, lastSeen)
 			if err != nil {
-				log.Printf("ユーザーID %d の在室情報削除エラー: %v", uid, err)
-			} else {
-				log.Printf("ユーザーID %d の在室情報を削除しました。", uid)
-
-				// セッションを終了
-				err = endUserSession(db, uid, time.Now())
-				if err != nil {
-					log.Printf("ユーザーID %d のセッション終了エラー: %v", uid, err)
-				} else {
-					log.Printf("ユーザーID %d の在室から離れたことをログに記録しました。", uid)
-				}
+				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
+			}
+		} else {
+			return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
+		}
+	} else {
+		if existingRoomID != roomID {
+			// 部屋が変更されたので現在のセッションを終了し、新しいセッションを開始
+			err = endUserSession(db, userID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("既存セッションの終了に失敗しました: %v", err)
+			}
+			err = startUserSession(db, userID, roomID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
+			}
+		} else {
+			// 同じ部屋の場合、last_seenを更新
+			err = updateLastSeen(db, userID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
 			}
 		}
-
-		time.Sleep(5 * time.Minute)
 	}
+
+	return nil
 }
 
 // /api/signals/server エンドポイントの処理
@@ -632,7 +526,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 	// 1ヶ月分のセッションを取得
 	rows, err := db.Query(`
-		SELECT session_id, user_id, room_id, start_time, end_time
+		SELECT session_id, user_id, room_id, start_time, end_time, last_seen
 		FROM user_presence_sessions
 		WHERE user_id = $1 AND start_time >= $2
 		ORDER BY start_time
@@ -648,7 +542,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	for rows.Next() {
 		var session PresenceSession
 		var endTime sql.NullTime
-		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime); err != nil {
+		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime, &session.LastSeen); err != nil {
 			log.Printf("在室履歴のスキャンエラー: %v", err)
 			continue
 		}
@@ -702,19 +596,19 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 // /api/current_occupants エンドポイントの処理
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	// 現在の在室者情報を取得するクエリ（LEFT JOINを使用）
+	// 現在の在室者情報を取得するクエリ（user_presence_sessions から end_time が NULL のセッションを取得）
 	query := `
 		SELECT 
 			rooms.room_id, 
 			rooms.room_name, 
 			users.user_id, 
-			user_current_presence.last_seen
+			user_presence_sessions.last_seen
 		FROM 
 			rooms
 		LEFT JOIN 
-			user_current_presence ON rooms.room_id = user_current_presence.room_id
+			user_presence_sessions ON rooms.room_id = user_presence_sessions.room_id AND user_presence_sessions.end_time IS NULL
 		LEFT JOIN 
-			users ON user_current_presence.user_id = users.id
+			users ON user_presence_sessions.user_id = users.id
 		ORDER BY 
 			rooms.room_id, users.user_id
 	`
@@ -782,6 +676,54 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
 		log.Printf("JSONエンコードエラー: %v", err)
 		return
+	}
+}
+
+// クリーンアップ処理を行う関数
+func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
+	ticker := time.NewTicker(1 * time.Minute) // 1分ごとにチェック
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+		cutoffTime := time.Now().Add(-inactivityThreshold)
+
+		// inactivityThreshold以上にlast_seenが古いセッションを終了
+		rows, err := db.Query(`
+			SELECT user_id, last_seen
+			FROM user_presence_sessions
+			WHERE end_time IS NULL AND last_seen < $1
+		`, cutoffTime)
+		if err != nil {
+			log.Printf("クリーンアップ処理中のクエリエラー: %v", err)
+			continue
+		}
+
+		var userID int
+		var lastSeen time.Time
+		var usersToEnd []int
+
+		for rows.Next() {
+			if err := rows.Scan(&userID, &lastSeen); err != nil {
+				log.Printf("クリーンアップ処理中のスキャンエラー: %v", err)
+				continue
+			}
+			usersToEnd = append(usersToEnd, userID)
+			log.Printf("ユーザーID %d のセッションを終了対象として検出 (LastSeen: %s)", userID, lastSeen)
+		}
+		rows.Close()
+
+		for _, uid := range usersToEnd {
+			// セッションを終了する際に、end_time を last_seen + inactivityThreshold に設定
+			// これにより、セッション終了時刻が正確に反映されます
+			endTime := lastSeen.Add(inactivityThreshold)
+			err := endUserSession(db, uid, endTime)
+			if err != nil {
+				log.Printf("ユーザーID %d のセッション終了エラー: %v", uid, err)
+			} else {
+				log.Printf("ユーザーID %d のセッションを終了しました。", uid)
+			}
+		}
 	}
 }
 
@@ -870,8 +812,8 @@ func main() {
 		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
 
-	// クリーンアップ処理をバックグラウンドで開始（15分の閾値）
-	go cleanUpOldPresence(db, 15*time.Minute)
+	// クリーンアップ処理をバックグラウンドで開始（10分の閾値）
+	go cleanUpOldSessions(db, 10*time.Minute)
 
 	// エンドポイントのハンドラを設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {

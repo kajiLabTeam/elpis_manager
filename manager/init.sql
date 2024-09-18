@@ -55,21 +55,20 @@ CREATE TABLE user_presence_logs (
     timestamp TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- ユーザーごとの最新の在室状況を保存するテーブル
-CREATE TABLE user_current_presence (
-    user_id INT PRIMARY KEY REFERENCES users(id),
-    room_id INT REFERENCES rooms(room_id),
-    last_seen TIMESTAMP NOT NULL
-);
-
 -- ユーザーの在室セッションを保存するテーブル
 CREATE TABLE user_presence_sessions (
     session_id SERIAL PRIMARY KEY,
     user_id INT REFERENCES Users(id),
     room_id INT REFERENCES rooms(room_id),
     start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP
+    end_time TIMESTAMP,
+    last_seen TIMESTAMP NOT NULL
 );
+
+-- インデックスの追加
+CREATE INDEX idx_user_presence_sessions_user_id ON user_presence_sessions(user_id);
+CREATE INDEX idx_user_presence_sessions_end_time ON user_presence_sessions(end_time);
+CREATE INDEX idx_user_presence_sessions_last_seen ON user_presence_sessions(last_seen);
 
 -- ユーザーのデータを挿入
 INSERT INTO Users (user_id, password) VALUES
