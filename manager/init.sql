@@ -140,11 +140,3 @@ VALUES
     (1, 1),
     (2, 2),
     (3, 3);
-
--- クエリサーバのURLを挿入
-INSERT INTO
-    query_server (url)
-VALUES
-    ('http://example.com/api/query1'),
-    ('http://example.com/api/query2'),
-    ('http://example.com/api/query3');
