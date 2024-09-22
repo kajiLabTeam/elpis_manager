@@ -1,8 +1,5 @@
--- 滞在管理システムテーブル
-CREATE TABLE
-    organizations (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        api_endpoint VARCHAR(512) NOT NULL,
-        port_number INT NOT NULL,
-        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-    );
+CREATE TABLE organizations (
+    api_endpoint VARCHAR PRIMARY KEY,
+    port_number INTEGER,
+    last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
