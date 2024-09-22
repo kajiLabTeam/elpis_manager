@@ -100,24 +100,15 @@ type CurrentOccupantsResponse struct {
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
-
-	// ヘッダー行を読み飛ばす
-	if _, err := reader.Read(); err != nil {
-		return nil, fmt.Errorf("ヘッダー行の読み込みエラー: %v", err)
-	}
-
-	// 残りのレコードを読み込む
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("CSVレコードの読み込みエラー: %v", err)
+		return nil, err
 	}
-
 	return records, nil
 }
 
 // BLEとWiFiのファイルを /api/inquiry エンドポイントに転送する
 func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, proxyURL string) error {
-	// ファイルを先頭に戻す
 	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -125,11 +116,9 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// リクエストボディを構築するためのmultipartライターを作成
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// WiFiファイルをフォームに追加
 	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
 	if err != nil {
 		return err
@@ -138,7 +127,6 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// BLEファイルをフォームに追加
 	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
 	if err != nil {
 		return err
@@ -147,10 +135,8 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 		return err
 	}
 
-	// multipartライターを閉じてフォームを完了
 	writer.Close()
 
-	// /api/inquiry エンドポイントにリクエストを送信
 	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), writer.FormDataContentType(), body)
 	if err != nil {
 		return err
@@ -172,7 +158,6 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, map[string]int, error) {
 	}
 	defer rows.Close()
 
-	// UUIDをRSSIしきい値にマッピング
 	uuidThresholds := make(map[string]int)
 	uuidRoomIDs := make(map[string]int)
 	for rows.Next() {
@@ -182,7 +167,7 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, map[string]int, error) {
 		if err := rows.Scan(&uuid, &threshold, &roomID); err != nil {
 			return nil, nil, err
 		}
-		uuid = strings.TrimSpace(uuid) // 空白を除去
+		uuid = strings.TrimSpace(uuid)
 		uuidThresholds[uuid] = threshold
 		uuidRoomIDs[uuid] = roomID
 		log.Printf("UUIDをロード: %s, RSSIしきい値: %d, RoomID: %d", uuid, threshold, roomID)
@@ -198,7 +183,6 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string]int, map[string]int, error) {
 func getUserID(r *http.Request) string {
 	username, _, ok := r.BasicAuth()
 	if !ok || username == "" {
-		// ユーザIDが提供されていない場合は匿名ユーザとします
 		username = "anonymous"
 	}
 	return username
@@ -216,7 +200,6 @@ func getUserIDFromDB(db *sql.DB, username string) (int, error) {
 
 // ファイルを保存するヘルパー関数
 func saveUploadedFile(file multipart.File, path string) error {
-	// ファイルを先頭に戻す
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -296,7 +279,6 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 
 // /api/signals/submit エンドポイントの処理
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
-	// リクエストの最大メモリを設定（必要に応じて調整）
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
 		return
@@ -316,36 +298,29 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	}
 	defer bleFile.Close()
 
-	// ユーザIDを取得
 	username := getUserID(r)
 
-	// データベースからユーザーIDを取得
 	userID, err := getUserIDFromDB(db, username)
 	if err != nil {
 		http.Error(w, "ユーザーが見つかりません", http.StatusUnauthorized)
 		return
 	}
 
-	// 現在の日付を取得
-	currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD
+	currentDate := time.Now().Format("2006-01-02")
 
-	// 保存先ディレクトリを構築
 	baseDir := "./uploads"
 	userDir := filepath.Join(baseDir, username)
 	dateDir := filepath.Join(userDir, currentDate)
 
-	// ディレクトリが存在しない場合は作成
 	if err := os.MkdirAll(dateDir, os.ModePerm); err != nil {
 		http.Error(w, "ディレクトリの作成に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
-	// ファイル名にタイムスタンプを付加（必要に応じて）
-	timeStamp := time.Now().Format("150405") // HHMMSS
+	timeStamp := time.Now().Format("150405")
 	wifiFileName := fmt.Sprintf("wifi_data_%s.csv", timeStamp)
 	bleFileName := fmt.Sprintf("ble_data_%s.csv", timeStamp)
 
-	// ファイルを保存
 	wifiFilePath := filepath.Join(dateDir, wifiFileName)
 	bleFilePath := filepath.Join(dateDir, bleFileName)
 
@@ -358,7 +333,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		return
 	}
 
-	// ファイルポインタをリセット
 	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
 		http.Error(w, "WiFiデータファイルのリセットに失敗しました", http.StatusInternalServerError)
 		return
@@ -368,14 +342,12 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		return
 	}
 
-	// WiFi CSVデータをパース（このロジックでは使用しないが、妥当性を確認するためにパース）
 	_, err = parseCSV(wifiFile)
 	if err != nil {
 		http.Error(w, "WiFi CSVのパースエラー", http.StatusBadRequest)
 		return
 	}
 
-	// BLE CSVデータをパース
 	bleRecords, err := parseCSV(bleFile)
 	if err != nil {
 		http.Error(w, "BLE CSVのパースエラー", http.StatusBadRequest)
@@ -388,7 +360,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 
 	for _, record := range bleRecords {
 		if len(record) > 2 {
-			// 時刻, UUID, RSSI の順に想定
 			uuid := strings.TrimSpace(record[1])
 			rssiStr := strings.TrimSpace(record[2])
 			rssiValue, err := strconv.Atoi(rssiStr)
@@ -399,16 +370,13 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 
 			if threshold, exists := uuidThresholds[uuid]; exists {
 				if rssiValue > threshold {
-					// RSSIがしきい値より大きい（信号が強い）; デバイスが存在すると判断
 					foundStrongSignal = true
 					detectedRoomID = uuidRoomIDs[uuid]
 					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
 					break
 				} else {
-					// RSSIがしきい値以下（信号が弱い）
 					foundWeakSignal = true
 					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
-					// 他のレコードをチェック
 				}
 			}
 		}
@@ -417,7 +385,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	currentTime := time.Now()
 
 	if foundStrongSignal {
-		// 強い信号が検出されたので、在室情報をデータベースに保存または更新
 		log.Println("強い信号が検出されたため、在室情報を更新します。")
 		err = updateUserPresence(db, userID, detectedRoomID, currentTime)
 		if err != nil {
@@ -426,7 +393,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 			log.Printf("ユーザーID %d の在室情報をRoomID %d に更新しました。", userID, detectedRoomID)
 		}
 	} else if foundWeakSignal {
-		// 弱い信号が検出されたので、照会サーバに問い合わせる
 		log.Println("弱い信号が検出されたため、照会サーバにファイルを転送します。")
 		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
 		if err != nil {
@@ -435,7 +401,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		}
 		log.Println("照会サーバへのファイル転送が完了しました。")
 	} else {
-		// デバイスが見つからなかった場合、セッションを終了
 		log.Println("BLEデータにデバイスが見つからなかったため、セッションを終了します。")
 		err = endUserSession(db, userID, currentTime)
 		if err != nil {
@@ -445,7 +410,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		}
 	}
 
-	// セッションのlast_seenを更新（強い信号があった場合）
 	if foundStrongSignal {
 		err = updateLastSeen(db, userID, currentTime)
 		if err != nil {
@@ -460,7 +424,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 
 // 在室情報を更新する関数
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
-	// 現在のセッションを取得
 	var existingRoomID int
 	err := db.QueryRow(`
 		SELECT room_id FROM user_presence_sessions
@@ -469,7 +432,6 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// セッションが存在しないので新規に開始
 			err = startUserSession(db, userID, roomID, lastSeen)
 			if err != nil {
 				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
@@ -479,7 +441,6 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 		}
 	} else {
 		if existingRoomID != roomID {
-			// 部屋が変更されたので現在のセッションを終了し、新しいセッションを開始
 			err = endUserSession(db, userID, lastSeen)
 			if err != nil {
 				return fmt.Errorf("既存セッションの終了に失敗しました: %v", err)
@@ -489,7 +450,6 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
 			}
 		} else {
-			// 同じ部屋の場合、last_seenを更新
 			err = updateLastSeen(db, userID, lastSeen)
 			if err != nil {
 				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
@@ -502,13 +462,11 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 
 // /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
-	// handleSignalsSubmit と同じ処理を行う
 	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 }
 
 // /api/presence_history エンドポイントの処理
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	// クエリパラメータからユーザーIDを取得（必要に応じて認証を強化）
 	userIDStr := r.URL.Query().Get("user_id")
 	if userIDStr == "" {
 		http.Error(w, "user_id パラメータが必要です", http.StatusBadRequest)
@@ -521,10 +479,8 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		return
 	}
 
-	// 1ヶ月前の日付を計算
 	oneMonthAgo := time.Now().AddDate(0, -1, 0)
 
-	// 1ヶ月分のセッションを取得
 	rows, err := db.Query(`
 		SELECT session_id, user_id, room_id, start_time, end_time, last_seen
 		FROM user_presence_sessions
@@ -560,14 +516,12 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		return
 	}
 
-	// セッションを日付ごとにグループ化
 	historyMap := make(map[string][]PresenceSession)
 	for _, session := range sessions {
 		date := session.StartTime.Format("2006-01-02")
 		historyMap[date] = append(historyMap[date], session)
 	}
 
-	// マップをスライスに変換
 	var history []UserPresenceDay
 	for date, sessions := range historyMap {
 		history = append(history, UserPresenceDay{
@@ -576,7 +530,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		})
 	}
 
-	// 日付でソート（昇順）
 	sort.Slice(history, func(i, j int) bool {
 		return history[i].Date < history[j].Date
 	})
@@ -585,7 +538,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		History: history,
 	}
 
-	// JSONとしてレスポンスを返す
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
@@ -596,7 +548,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 // /api/current_occupants エンドポイントの処理
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	// 現在の在室者情報を取得するクエリ（user_presence_sessions から end_time が NULL のセッションを取得）
 	query := `
 		SELECT 
 			rooms.room_id, 
@@ -621,7 +572,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	}
 	defer rows.Close()
 
-	// 部屋ごとに在室者をまとめるマップ
 	roomsMap := make(map[int]RoomOccupants)
 
 	for rows.Next() {
@@ -635,7 +585,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 			continue
 		}
 
-		// マップに部屋が存在しない場合は新規作成
 		if _, exists := roomsMap[roomID]; !exists {
 			roomsMap[roomID] = RoomOccupants{
 				RoomID:    roomID,
@@ -644,7 +593,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 			}
 		}
 
-		// 在室者が存在する場合のみ occupants に追加
 		if userID.Valid {
 			occupant := CurrentOccupant{
 				UserID:   userID.String,
@@ -662,7 +610,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 		return
 	}
 
-	// マップをスライスに変換
 	response := CurrentOccupantsResponse{
 		Rooms: []RoomOccupants{},
 	}
@@ -670,7 +617,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 		response.Rooms = append(response.Rooms, room)
 	}
 
-	// JSONとしてレスポンスを返す
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
@@ -681,14 +627,13 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 
 // クリーンアップ処理を行う関数
 func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
-	ticker := time.NewTicker(1 * time.Minute) // 1分ごとにチェック
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		<-ticker.C
 		cutoffTime := time.Now().Add(-inactivityThreshold)
 
-		// inactivityThreshold以上にlast_seenが古いセッションを終了
 		rows, err := db.Query(`
 			SELECT user_id, last_seen
 			FROM user_presence_sessions
@@ -714,8 +659,6 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 		rows.Close()
 
 		for _, uid := range usersToEnd {
-			// セッションを終了する際に、end_time を last_seen + inactivityThreshold に設定
-			// これにより、セッション終了時刻が正確に反映されます
 			endTime := lastSeen.Add(inactivityThreshold)
 			err := endUserSession(db, uid, endTime)
 			if err != nil {
@@ -728,16 +671,13 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 }
 
 func main() {
-	// 設定ファイルのパスを指定（必要に応じて変更）
 	configPath := "config.toml"
 
-	// 設定を読み込む
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
 		log.Fatalf("設定ファイルの読み込みに失敗しました: %v\n", err)
 	}
 
-	// モードとポートのコマンドラインフラグを定義
 	mode := flag.String("mode", config.Mode, "アプリケーションの実行モード (docker または local)")
 	port := flag.String("port", config.ServerPort, "サーバを実行するポート")
 	flag.Parse()
@@ -745,7 +685,6 @@ func main() {
 	var proxyURL, dbConnStr string
 	var skipRegistration bool
 
-	// モードに応じてURLを決定
 	if *mode == "local" {
 		proxyURL = config.Local.ProxyURL
 		dbConnStr = config.Local.DBConnStr
@@ -756,7 +695,6 @@ func main() {
 		skipRegistration = config.Docker.SkipRegistration
 	}
 
-	// 設定値を出力
 	log.Printf("モード: %s", *mode)
 	log.Printf("サーバポート: %s", *port)
 	log.Printf("Proxy URL: %s", proxyURL)
@@ -764,14 +702,12 @@ func main() {
 	log.Printf("skipRegistration: %v", skipRegistration)
 	log.Printf("システムURI: %s", config.Registration.SystemURI)
 
-	// データベースに接続
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
 		log.Fatalf("データベースに接続できませんでした: %v\n", err)
 	}
 	defer db.Close()
 
-	// データベースからUUIDとRSSIしきい値を取得
 	uuidThresholds, uuidRoomIDs, err := getUUIDsAndThresholds(db)
 	if err != nil {
 		log.Fatalf("UUIDとしきい値を取得できませんでした: %v\n", err)
@@ -781,7 +717,6 @@ func main() {
 		log.Println("skipRegistrationがfalseのため、サーバの登録を行います。")
 		registerURL := fmt.Sprintf("%s/api/register", proxyURL)
 
-		// サーバポートを整数に変換
 		serverPortInt, err := strconv.Atoi(*port)
 		if err != nil {
 			log.Fatalf("ポート番号の変換に失敗しました: %v\n", err)
@@ -812,10 +747,8 @@ func main() {
 		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
 
-	// クリーンアップ処理をバックグラウンドで開始（10分の閾値）
 	go cleanUpOldSessions(db, 10*time.Minute)
 
-	// エンドポイントのハンドラを設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
@@ -823,7 +756,6 @@ func main() {
 		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
 
-	// 新しいエンドポイントのハンドラを設定
 	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
 		handlePresenceHistory(w, r, db)
 	})
