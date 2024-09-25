@@ -793,7 +793,7 @@ func main() {
 		handleCurrentOccupants(w, r, db)
 	})
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleHealthCheck(w, r, db)
 	})
 
