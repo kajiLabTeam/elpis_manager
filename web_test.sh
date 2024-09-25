@@ -4,7 +4,7 @@
 SERVER_URL="https://elpis-m1.kajilab.dev"
 
 # presence_history用のユーザーID
-USER_ID=123
+USER_ID=1
 
 # presence_historyエンドポイントにリクエスト
 echo "ユーザーID $USER_ID の在室履歴を取得中..."

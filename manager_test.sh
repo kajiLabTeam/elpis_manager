@@ -79,13 +79,13 @@ EOL
 echo "データを /api/signals/submit に送信しています..."
 
 # /api/signals/submit にデータを送信します（Basic認証を追加）
-RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/submit)
+RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" https://elpis-m1.kajilab.dev/api/signals/submit)
 echo "サーバからのレスポンス: $RESPONSE"
 
 echo "データを /api/signals/server に送信しています..."
 
 # /api/signals/server にデータを送信します（Basic認証を追加）
-RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" http://localhost:$GO_APP_PORT/api/signals/server)
+RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" -F "ble_data=@$BLE_CSV_FILE" -F "wifi_data=@$WIFI_CSV_FILE" https://elpis-m1.kajilab.dev/api/signals/server)
 echo "サーバからのレスポンス: $RESPONSE"
 
 # 後片付けとして、一時的に作成したCSVファイルを削除します
