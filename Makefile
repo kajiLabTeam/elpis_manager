@@ -45,7 +45,7 @@ restart-proxy: ## Restart only the proxy service
 	docker compose restart proxy
 
 e2e-test: ## Run end-to-end tests by executing test_send_data.sh
-	./test_send_data_select.sh
+	./manager_test.sh
 
 db-up: ## Start only the database services
 	docker compose up -d postgres_manager postgres_proxy
