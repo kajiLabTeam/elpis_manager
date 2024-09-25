@@ -97,6 +97,13 @@ type CurrentOccupantsResponse struct {
 	Rooms []RoomOccupants `json:"rooms"`
 }
 
+// HealthCheckResponse は健康チェックのレスポンス構造体
+type HealthCheckResponse struct {
+	Status    string `json:"status"`
+	Database  string `json:"database"`
+	Timestamp string `json:"timestamp"`
+}
+
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
@@ -625,6 +632,29 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	}
 }
 
+// /health エンドポイントの処理
+func handleHealthCheck(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	response := HealthCheckResponse{
+		Status:    "ok",
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	if err := db.Ping(); err != nil {
+		response.Status = "error"
+		response.Database = "unreachable"
+	} else {
+		response.Database = "reachable"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if response.Status == "ok" {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
 // クリーンアップ処理を行う関数
 func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 	ticker := time.NewTicker(1 * time.Minute)
@@ -659,7 +689,7 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 		rows.Close()
 
 		for _, uid := range usersToEnd {
-			endTime := lastSeen.Add(inactivityThreshold)
+			endTime := time.Now()
 			err := endUserSession(db, uid, endTime)
 			if err != nil {
 				log.Printf("ユーザーID %d のセッション終了エラー: %v", uid, err)
@@ -670,6 +700,7 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 	}
 }
 
+// main 関数
 func main() {
 	configPath := "config.toml"
 
@@ -755,13 +786,15 @@ func main() {
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
 	})
-
 	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
 		handlePresenceHistory(w, r, db)
 	})
-
 	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
 		handleCurrentOccupants(w, r, db)
+	})
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		handleHealthCheck(w, r, db)
 	})
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)

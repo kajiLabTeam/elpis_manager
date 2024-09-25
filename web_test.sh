@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # サーバのベースURL
-SERVER_URL="http://localhost:8010"
+SERVER_URL="https://elpis-m1.kajilab.dev"
 
 # presence_history用のユーザーID
 USER_ID=123
