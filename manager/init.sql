@@ -74,8 +74,8 @@ INSERT INTO
     Users (user_id, password)
 VALUES
     ('user1', 'password1'),
-    ('user2', 'password2'),
-    ('user3', 'password3');
+    ('hihumikan', 'password2'),
+    ('harutiro', 'password3');
 
 -- 部屋のデータを挿入
 INSERT INTO
@@ -97,21 +97,21 @@ INSERT INTO
 VALUES
     (
         'elpis-001',
-        'd546df97-4757-47ef-be09-3e2dcbdd0c77',
+        '517557dc-f2d6-42f1-9695-f9883f856a70',
         'DC:0D:30:1E:33:91',
         -80,
         2
     ),
     (
         'elpis-002',
-        'd546df97-4757-47ef-be09-3e2dcbdd0c77',
+        '4e24ac47-b7e6-44f5-957f-1cdcefa2acab',
         'DC:0D:30:1E:33:84',
         -75,
         3
     ),
     (
         'elpis-003',
-        'd546df97-4757-47ef-be09-3e2dcbdd0c77',
+        '722eb21f-8f6a-4ba9-a12f-05c0f970a177',
         'DC:0D:30:1E:33:3E',
         -75,
         3
@@ -121,9 +121,12 @@ VALUES
 INSERT INTO
     wifi_access_points (ssid, bssid, rssi, room_id)
 VALUES
-    ('WiFi A', '66:77:88:99:AA:BB', -65, 1),
-    ('WiFi B', '66:77:88:99:AA:BC', -70, 2),
-    ('WiFi C', '66:77:88:99:AA:BD', -75, 3);
+    ('KJLB-WorkRoom-ac', '66:77:88:99:AA:BB', -65, 1),
+    ('KJLB-WorkRoom-g', '66:77:88:99:AA:BC', -65, 1),
+    ('KJLB-StuRoom-108ac', '66:77:88:99:AA:BD', -75, 2),
+    ('KJLB-StuRoom-108g', '66:77:88:99:AA:BE', -75, 2),
+    ('KJLB-104a', '66:77:88:99:AA:BF', -75, 3),
+    ('KJLB-104g', '66:77:88:99:AA:BG', -75, 3);
 
 -- ロールのデータを挿入
 INSERT INTO
@@ -138,5 +141,5 @@ INSERT INTO
     user_roles (user_id, role_id)
 VALUES
     (1, 1),
-    (2, 2),
-    (3, 3);
+    (2, 1),
+    (3, 1);
