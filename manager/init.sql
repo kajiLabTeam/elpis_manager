@@ -115,7 +115,7 @@ VALUES
         'DC:0D:30:1E:33:3E',
         -75,
         3
-    ),;
+    );
 
 -- WiFiアクセスポイントのデータを挿入、RSSI値も指定
 INSERT INTO
