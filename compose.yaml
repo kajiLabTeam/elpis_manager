@@ -31,6 +31,23 @@ services:
     environment:
       - TZ=Asia/Tokyo
 
+  echo:
+    image: golang:1.22.5-bookworm
+    ports:
+      - 8011:8010
+    volumes:
+      - ./echo:/app
+      - /etc/localtime:/etc/localtime:ro
+    working_dir: /app
+    depends_on:
+      proxy:
+        condition: service_started
+      postgres_echo:
+        condition: service_healthy
+    command: go run ./cmd/server.go
+    environment:
+      - TZ=Asia/Tokyo
+
   postgres_manager:
     image: postgres:16.3-bookworm
     environment:
@@ -62,6 +79,23 @@ services:
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d proxydb"]
+      interval: 15s
+      retries: 10
+
+  postgres_echo:
+    image: postgres:16.3-bookworm
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: echodb
+      TZ: Asia/Tokyo
+    ports:
+      - 5435:5432
+    volumes:
+      - ./echo/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d echodb"]
       interval: 15s
       retries: 10
 
