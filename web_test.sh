@@ -1,10 +1,39 @@
 #!/bin/bash
 
-# サーバのベースURL
-SERVER_URL="https://elpis-m1.kajilab.dev"
+# ローカル環境のサーバのベースURLとポートを指定します
+LOCAL_SERVER_URL="http://localhost:8010"
+
+# 本番環境のサーバのベースURLを指定します
+PROD_SERVER_URL="https://elpis-m1.kajilab.dev"
 
 # presence_history用のユーザーID
 USER_ID=1
+
+# 環境選択のメニュー
+ENVIRONMENTS=(
+    "ローカル環境"
+    "本番環境"
+)
+
+echo "送信先の環境を選択してください:"
+select ENV in "${ENVIRONMENTS[@]}"; do
+    if [[ -n "$ENV" ]]; then
+        echo "選択された環境: $ENV"
+        break
+    else
+        echo "無効な選択です。もう一度お試しください。"
+    fi
+done
+
+# 環境に応じて送信先URLを設定
+if [[ "$ENV" == "ローカル環境" ]]; then
+    SERVER_URL="${LOCAL_SERVER_URL}"
+elif [[ "$ENV" == "本番環境" ]]; then
+    SERVER_URL="${PROD_SERVER_URL}"
+else
+    echo "無効な環境が選択されました。スクリプトを終了します。"
+    exit 1
+fi
 
 # presence_historyエンドポイントにリクエスト
 echo "ユーザーID $USER_ID の在室履歴を取得中..."
