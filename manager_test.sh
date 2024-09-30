@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# サーバのポートを指定します
-GO_APP_PORT="8010"  # サーバが異なるポートで実行されている場合は調整してください
+# サーバのポートを指定します（ローカル環境用）
+LOCAL_GO_APP_PORT="8010"
+
+# 本番環境のURLを指定します
+PROD_URL="https://elpis-m1.kajilab.dev"
 
 # テスト用のBLEとWiFiのCSVファイル名を指定します
 BLE_CSV_FILE="ble_data.csv"
@@ -33,7 +36,35 @@ BASIC_AUTH_PASS="password"  # 任意の値
 ROOM1_UUID="4e24ac47-b7e6-44f5-957f-1cdcefa2acab"  # 部屋ID: 1
 ROOM2_UUID="517557dc-f2d6-42f1-9695-f9883f856a70"  # 部屋ID: 2
 
-# メニューを表示し、実行したいテストケースを選択します
+# 環境選択のメニュー
+ENVIRONMENTS=(
+    "ローカル環境"
+    "本番環境"
+)
+
+echo "送信先の環境を選択してください:"
+select ENV in "${ENVIRONMENTS[@]}"; do
+    if [[ -n "$ENV" ]]; then
+        echo "選択された環境: $ENV"
+        break
+    else
+        echo "無効な選択です。もう一度お試しください。"
+    fi
+done
+
+# 環境に応じて送信先URLを設定
+if [[ "$ENV" == "ローカル環境" ]]; then
+    SUBMIT_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals/submit"
+    SERVER_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals/server"
+elif [[ "$ENV" == "本番環境" ]]; then
+    SUBMIT_URL="${PROD_URL}/api/signals/submit"
+    SERVER_URL="${PROD_URL}/api/signals/server"
+else
+    echo "無効な環境が選択されました。スクリプトを終了します。"
+    exit 1
+fi
+
+# テストケースを表示し、実行したいものを選択
 echo "実行したいテストケースを選択してください:"
 select TEST_NAME in "${TEST_NAMES[@]}"; do
     if [[ -n "$TEST_NAME" ]]; then
@@ -133,7 +164,7 @@ echo "データを /api/signals/submit に送信しています..."
 RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
     -F "ble_data=@$BLE_CSV_FILE" \
     -F "wifi_data=@$WIFI_CSV_FILE" \
-    http://localhost:$GO_APP_PORT/api/signals/submit)
+    "$SUBMIT_URL")
 echo "サーバからのレスポンス: $RESPONSE"
 
 echo "データを /api/signals/server に送信しています..."
@@ -142,7 +173,7 @@ echo "データを /api/signals/server に送信しています..."
 RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
     -F "ble_data=@$BLE_CSV_FILE" \
     -F "wifi_data=@$WIFI_CSV_FILE" \
-    http://localhost:$GO_APP_PORT/api/signals/server)
+    "$SERVER_URL")
 echo "サーバからのレスポンス: $RESPONSE"
 
 # 後片付けとして、一時的に作成したCSVファイルを削除します
