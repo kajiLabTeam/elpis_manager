@@ -104,6 +104,12 @@ type HealthCheckResponse struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// BeaconThreshold はUUIDに対応するしきい値と部屋IDを保持する構造体
+type BeaconThreshold struct {
+	Threshold int
+	RoomID    int
+}
+
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
@@ -158,32 +164,33 @@ func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, prox
 }
 
 // beaconsテーブルからすべてのUUIDとそのRSSIしきい値、room_idを取得
-func getUUIDsAndThresholds(db *sql.DB) (map[string]int, map[string]int, error) {
+func getUUIDsAndThresholds(db *sql.DB) (map[string][]BeaconThreshold, error) {
 	rows, err := db.Query("SELECT service_uuid, rssi, room_id FROM beacons")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	uuidThresholds := make(map[string]int)
-	uuidRoomIDs := make(map[string]int)
+	uuidThresholds := make(map[string][]BeaconThreshold)
 	for rows.Next() {
 		var uuid string
 		var threshold int
 		var roomID int
 		if err := rows.Scan(&uuid, &threshold, &roomID); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		uuid = strings.TrimSpace(uuid)
-		uuidThresholds[uuid] = threshold
-		uuidRoomIDs[uuid] = roomID
+		uuidThresholds[uuid] = append(uuidThresholds[uuid], BeaconThreshold{
+			Threshold: threshold,
+			RoomID:    roomID,
+		})
 		log.Printf("UUIDをロード: %s, RSSIしきい値: %d, RoomID: %d", uuid, threshold, roomID)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return uuidThresholds, uuidRoomIDs, nil
+	return uuidThresholds, nil
 }
 
 // ユーザIDを取得する関数（Basic認証を使用）
@@ -226,9 +233,9 @@ func saveUploadedFile(file multipart.File, path string) error {
 // セッションを開始する関数
 func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) error {
 	_, err := db.Exec(`
-		INSERT INTO user_presence_sessions (user_id, room_id, start_time, last_seen)
-		VALUES ($1, $2, $3, $3)
-	`, userID, roomID, startTime)
+        INSERT INTO user_presence_sessions (user_id, room_id, start_time, last_seen)
+        VALUES ($1, $2, $3, $3)
+    `, userID, roomID, startTime)
 	if err != nil {
 		return fmt.Errorf("セッションの開始に失敗しました: %v", err)
 	}
@@ -239,10 +246,10 @@ func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) e
 // セッションを終了する関数
 func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 	result, err := db.Exec(`
-		UPDATE user_presence_sessions
-		SET end_time = $1
-		WHERE user_id = $2 AND end_time IS NULL
-	`, endTime, userID)
+        UPDATE user_presence_sessions
+        SET end_time = $1
+        WHERE user_id = $2 AND end_time IS NULL
+    `, endTime, userID)
 	if err != nil {
 		return fmt.Errorf("セッションの終了に失敗しました: %v", err)
 	}
@@ -263,10 +270,10 @@ func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 // セッションのlast_seenを更新する関数
 func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	result, err := db.Exec(`
-		UPDATE user_presence_sessions
-		SET last_seen = $1
-		WHERE user_id = $2 AND end_time IS NULL
-	`, lastSeen, userID)
+        UPDATE user_presence_sessions
+        SET last_seen = $1
+        WHERE user_id = $2 AND end_time IS NULL
+    `, lastSeen, userID)
 	if err != nil {
 		return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
 	}
@@ -284,8 +291,46 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	return nil
 }
 
+// 在室情報を更新する関数
+func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
+	var existingRoomID int
+	err := db.QueryRow(`
+        SELECT room_id FROM user_presence_sessions
+        WHERE user_id = $1 AND end_time IS NULL
+    `, userID).Scan(&existingRoomID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			err = startUserSession(db, userID, roomID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
+			}
+		} else {
+			return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
+		}
+	} else {
+		if existingRoomID != roomID {
+			err = endUserSession(db, userID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("既存セッションの終了に失敗しました: %v", err)
+			}
+			err = startUserSession(db, userID, roomID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
+			}
+		} else {
+			err = updateLastSeen(db, userID, lastSeen)
+			if err != nil {
+				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // /api/signals/submit エンドポイントの処理
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string][]BeaconThreshold) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
 		return
@@ -364,6 +409,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	foundStrongSignal := false
 	foundWeakSignal := false
 	var detectedRoomID int
+	var maxRSSI int = -1000
 
 	for _, record := range bleRecords {
 		if len(record) > 2 {
@@ -375,15 +421,19 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 				continue
 			}
 
-			if threshold, exists := uuidThresholds[uuid]; exists {
-				if rssiValue > threshold {
-					foundStrongSignal = true
-					detectedRoomID = uuidRoomIDs[uuid]
-					log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
-					break
-				} else {
-					foundWeakSignal = true
-					log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, threshold)
+			if thresholds, exists := uuidThresholds[uuid]; exists {
+				for _, bt := range thresholds {
+					if rssiValue > bt.Threshold {
+						foundStrongSignal = true
+						if rssiValue > maxRSSI {
+							maxRSSI = rssiValue
+							detectedRoomID = bt.RoomID
+							log.Printf("強い信号を検出。UUID: %s, RSSI: %d (しきい値: %d), RoomID: %d", uuid, rssiValue, bt.Threshold, bt.RoomID)
+						}
+					} else {
+						foundWeakSignal = true
+						log.Printf("弱い信号を検出。UUID: %s, RSSI: %d (しきい値: %d)", uuid, rssiValue, bt.Threshold)
+					}
 				}
 			}
 		}
@@ -429,47 +479,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	json.NewEncoder(w).Encode(response)
 }
 
-// 在室情報を更新する関数
-func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
-	var existingRoomID int
-	err := db.QueryRow(`
-		SELECT room_id FROM user_presence_sessions
-		WHERE user_id = $1 AND end_time IS NULL
-	`, userID).Scan(&existingRoomID)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			err = startUserSession(db, userID, roomID, lastSeen)
-			if err != nil {
-				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
-			}
-		} else {
-			return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
-		}
-	} else {
-		if existingRoomID != roomID {
-			err = endUserSession(db, userID, lastSeen)
-			if err != nil {
-				return fmt.Errorf("既存セッションの終了に失敗しました: %v", err)
-			}
-			err = startUserSession(db, userID, roomID, lastSeen)
-			if err != nil {
-				return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
-			}
-		} else {
-			err = updateLastSeen(db, userID, lastSeen)
-			if err != nil {
-				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
-			}
-		}
-	}
-
-	return nil
-}
-
 // /api/signals/server エンドポイントの処理
-func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string]int, uuidRoomIDs map[string]int) {
-	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string][]BeaconThreshold) {
+	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds)
 }
 
 // /api/presence_history エンドポイントの処理
@@ -489,11 +501,11 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	oneMonthAgo := time.Now().AddDate(0, -1, 0)
 
 	rows, err := db.Query(`
-		SELECT session_id, user_id, room_id, start_time, end_time, last_seen
-		FROM user_presence_sessions
-		WHERE user_id = $1 AND start_time >= $2
-		ORDER BY start_time
-	`, userID, oneMonthAgo)
+        SELECT session_id, user_id, room_id, start_time, end_time, last_seen
+        FROM user_presence_sessions
+        WHERE user_id = $1 AND start_time >= $2
+        ORDER BY start_time
+    `, userID, oneMonthAgo)
 	if err != nil {
 		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
 		log.Printf("在室履歴取得クエリエラー: %v", err)
@@ -556,20 +568,20 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 // /api/current_occupants エンドポイントの処理
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	query := `
-		SELECT 
-			rooms.room_id, 
-			rooms.room_name, 
-			users.user_id, 
-			user_presence_sessions.last_seen
-		FROM 
-			rooms
-		LEFT JOIN 
-			user_presence_sessions ON rooms.room_id = user_presence_sessions.room_id AND user_presence_sessions.end_time IS NULL
-		LEFT JOIN 
-			users ON user_presence_sessions.user_id = users.id
-		ORDER BY 
-			rooms.room_id, users.user_id
-	`
+        SELECT 
+            rooms.room_id, 
+            rooms.room_name, 
+            users.user_id, 
+            user_presence_sessions.last_seen
+        FROM 
+            rooms
+        LEFT JOIN 
+            user_presence_sessions ON rooms.room_id = user_presence_sessions.room_id AND user_presence_sessions.end_time IS NULL
+        LEFT JOIN 
+            users ON user_presence_sessions.user_id = users.id
+        ORDER BY 
+            rooms.room_id, users.user_id
+    `
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -665,10 +677,10 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 		cutoffTime := time.Now().Add(-inactivityThreshold)
 
 		rows, err := db.Query(`
-			SELECT user_id, last_seen
-			FROM user_presence_sessions
-			WHERE end_time IS NULL AND last_seen < $1
-		`, cutoffTime)
+            SELECT user_id, last_seen
+            FROM user_presence_sessions
+            WHERE end_time IS NULL AND last_seen < $1
+        `, cutoffTime)
 		if err != nil {
 			log.Printf("クリーンアップ処理中のクエリエラー: %v", err)
 			continue
@@ -739,7 +751,7 @@ func main() {
 	}
 	defer db.Close()
 
-	uuidThresholds, uuidRoomIDs, err := getUUIDsAndThresholds(db)
+	uuidThresholds, err := getUUIDsAndThresholds(db)
 	if err != nil {
 		log.Fatalf("UUIDとしきい値を取得できませんでした: %v\n", err)
 	}
@@ -781,10 +793,10 @@ func main() {
 	go cleanUpOldSessions(db, 10*time.Minute)
 
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		handleSignalsServer(w, r, db, proxyURL, uuidThresholds, uuidRoomIDs)
+		handleSignalsServer(w, r, db, proxyURL, uuidThresholds)
 	})
 	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
 		handlePresenceHistory(w, r, db)

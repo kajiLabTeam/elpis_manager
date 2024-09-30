@@ -107,7 +107,7 @@ VALUES
         '4e24ac47-b7e6-44f5-957f-1cdcefa2acab',
         'DC:0D:30:1E:33:84',
         -75,
-        3
+        1
     ),
     (
         'elpis-003',
