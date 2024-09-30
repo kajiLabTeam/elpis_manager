@@ -20,6 +20,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	_ "github.com/lib/pq"
+	"github.com/rs/cors"
 )
 
 // Config は設定ファイルの構造を表します
@@ -712,7 +713,6 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 	}
 }
 
-// main 関数
 func main() {
 	configPath := "config.toml"
 
@@ -792,6 +792,7 @@ func main() {
 
 	go cleanUpOldSessions(db, 10*time.Minute)
 
+	// ハンドラーの設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds)
 	})
@@ -809,8 +810,17 @@ func main() {
 		handleHealthCheck(w, r, db)
 	})
 
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173", "https://elpis.kajilab.dev"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	})
+
+	handler := corsHandler.Handler(http.DefaultServeMux)
+
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
-	if err := http.ListenAndServe(":"+*port, nil); err != nil {
+	if err := http.ListenAndServe(":"+*port, handler); err != nil {
 		log.Fatalf("サーバを開始できませんでした: %s\n", err)
 	}
 }
