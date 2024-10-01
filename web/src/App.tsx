@@ -59,6 +59,12 @@ interface CurrentOccupantsResponse {
 }
 
 const App: React.FC = () => {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const storedServerUrl = isDevelopment ? localStorage.getItem('serverUrl') || "https://elpis-m1.kajilab.dev" : "https://elpis-m1.kajilab.dev";
+
+  const [serverUrl, setServerUrl] = useState<string>(storedServerUrl);
+  const USER_ID = 1;
+
   const [presenceHistory, setPresenceHistory] = useState<
     UserPresenceDay[] | null
   >(null);
@@ -75,12 +81,6 @@ const App: React.FC = () => {
     { label: "本番環境", value: "https://elpis-m1.kajilab.dev" },
     { label: "開発環境", value: "http://localhost:8010" },
   ];
-
-  // サーバーURLを状態として管理
-  const [serverUrl, setServerUrl] = useState<string>(
-    "https://elpis-m1.kajilab.dev"
-  );
-  const USER_ID = 1;
 
   // サーバーURLが変更されたときにデータを再フェッチ
   useEffect(() => {
@@ -152,7 +152,11 @@ const App: React.FC = () => {
   const handleServerChange = (
     event: React.ChangeEvent<{ value: unknown }>
   ) => {
-    setServerUrl(event.target.value as string);
+    const selectedUrl = event.target.value as string;
+    setServerUrl(selectedUrl);
+    if (isDevelopment) {
+      localStorage.setItem('serverUrl', selectedUrl); 
+    }
   };
 
   return (
