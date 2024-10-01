@@ -1,9 +1,5 @@
 # Makefile for managing Docker Compose services and running Go services locally
 
-# Default environment variables
-export COMPOSE_PROJECT_NAME := elpis_project
-export COMPOSE_FILE := compose.yaml
-
 # Go services paths
 CMD_PATH := ./cmd/server.go
 
