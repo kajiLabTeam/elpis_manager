@@ -1,3 +1,5 @@
+// src/App.tsx
+import 'sanitize.css'; // sanitize.css をインポート
 import React, { useEffect, useState } from "react";
 import {
   Container,
