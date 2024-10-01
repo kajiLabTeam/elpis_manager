@@ -1,4 +1,26 @@
 import React, { useEffect, useState } from "react";
+import {
+  Container,
+  Typography,
+  CircularProgress,
+  Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Box,
+  Grid,
+  List,
+  ListItem,
+  ListItemText,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from "@mui/material";
 
 // 型定義（必要に応じて追加・修正してください）
 interface PresenceSession {
@@ -46,143 +68,228 @@ const App: React.FC = () => {
   const [errorHistory, setErrorHistory] = useState<string | null>(null);
   const [errorOccupants, setErrorOccupants] = useState<string | null>(null);
 
-  const SERVER_URL = "https://elpis-m1.kajilab.dev";
+  // サーバーURLの選択肢
+  const serverOptions = [
+    { label: "本番環境", value: "https://elpis-m1.kajilab.dev" },
+    { label: "開発環境", value: "http://localhost:8010" },
+  ];
+
+  // サーバーURLを状態として管理
+  const [serverUrl, setServerUrl] = useState<string>(
+    "https://elpis-m1.kajilab.dev"
+  );
   const USER_ID = 1;
 
+  // サーバーURLが変更されたときにデータを再フェッチ
   useEffect(() => {
-    // 在室履歴の取得
-    const fetchPresenceHistory = async () => {
-      try {
-        const response = await fetch(
-          `${SERVER_URL}/api/presence_history?user_id=${USER_ID}`,
-          {
+    // データを取得する関数
+    const fetchData = async () => {
+      setLoadingHistory(true);
+      setErrorHistory(null);
+      setPresenceHistory(null);
+
+      setLoadingOccupants(true);
+      setErrorOccupants(null);
+      setCurrentOccupants(null);
+
+      // 在室履歴の取得
+      const fetchPresenceHistory = async () => {
+        try {
+          const response = await fetch(
+            `${serverUrl}/api/presence_history?user_id=${USER_ID}`,
+            {
+              headers: {
+                Accept: "application/json",
+              },
+            }
+          );
+          if (!response.ok) {
+            throw new Error(
+              `Error: ${response.status} ${response.statusText}`
+            );
+          }
+          const data: PresenceHistoryResponse = await response.json();
+          setPresenceHistory(data.history);
+        } catch (error: any) {
+          setErrorHistory(error.message);
+        } finally {
+          setLoadingHistory(false);
+        }
+      };
+
+      // 現在の在室者情報の取得
+      const fetchCurrentOccupants = async () => {
+        try {
+          const response = await fetch(`${serverUrl}/api/current_occupants`, {
             headers: {
               Accept: "application/json",
             },
+          });
+          if (!response.ok) {
+            throw new Error(
+              `Error: ${response.status} ${response.statusText}`
+            );
           }
-        );
-        if (!response.ok) {
-          throw new Error(`Error: ${response.status} ${response.statusText}`);
+          const data: CurrentOccupantsResponse = await response.json();
+          setCurrentOccupants(data.rooms);
+        } catch (error: any) {
+          setErrorOccupants(error.message);
+        } finally {
+          setLoadingOccupants(false);
         }
-        const data: PresenceHistoryResponse = await response.json();
-        setPresenceHistory(data.history);
-      } catch (error: any) {
-        setErrorHistory(error.message);
-      } finally {
-        setLoadingHistory(false);
-      }
+      };
+
+      // 並行してデータを取得
+      await Promise.all([fetchPresenceHistory(), fetchCurrentOccupants()]);
     };
 
-    // 現在の在室者情報の取得
-    const fetchCurrentOccupants = async () => {
-      try {
-        const response = await fetch(`${SERVER_URL}/api/current_occupants`, {
-          headers: {
-            Accept: "application/json",
-          },
-        });
-        if (!response.ok) {
-          throw new Error(`Error: ${response.status} ${response.statusText}`);
-        }
-        const data: CurrentOccupantsResponse = await response.json();
-        setCurrentOccupants(data.rooms);
-      } catch (error: any) {
-        setErrorOccupants(error.message);
-      } finally {
-        setLoadingOccupants(false);
-      }
-    };
+    fetchData();
+  }, [serverUrl]); // serverUrl が変更されるたびに再実行
 
-    fetchPresenceHistory();
-    fetchCurrentOccupants();
-  }, []);
+  // ドロップダウンの変更ハンドラー
+  const handleServerChange = (
+    event: React.ChangeEvent<{ value: unknown }>
+  ) => {
+    setServerUrl(event.target.value as string);
+  };
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      <h1>在室履歴と現在の在室者情報</h1>
+    <Container maxWidth="lg" sx={{ padding: "20px" }}>
+      <Box mb={4} display="flex" alignItems="center" justifyContent="space-between">
+        <Typography variant="h4" gutterBottom>
+          在室履歴と現在の在室者情報
+        </Typography>
+        {/* サーバー選択ドロップダウン */}
+        <FormControl variant="outlined" size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="server-select-label">サーバー選択</InputLabel>
+          <Select
+            labelId="server-select-label"
+            id="server-select"
+            value={serverUrl}
+            onChange={handleServerChange}
+            label="サーバー選択"
+          >
+            {serverOptions.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
 
       {/* 在室履歴セクション */}
-      <section style={{ marginBottom: "40px" }}>
-        <h2>在室履歴</h2>
+      <Box mb={6}>
+        <Typography variant="h5" gutterBottom>
+          在室履歴
+        </Typography>
         {loadingHistory ? (
-          <p>在室履歴を取得中...</p>
+          <Box display="flex" alignItems="center">
+            <CircularProgress size={24} />
+            <Typography variant="body1" ml={2}>
+              在室履歴を取得中...
+            </Typography>
+          </Box>
         ) : errorHistory ? (
-          <p style={{ color: "red" }}>エラー: {errorHistory}</p>
+          <Alert severity="error">エラー: {errorHistory}</Alert>
         ) : presenceHistory && presenceHistory.length > 0 ? (
           presenceHistory.map((day) => (
-            <div key={day.date} style={{ marginBottom: "20px" }}>
-              <h3>{day.date}</h3>
-              <table
-                border={1}
-                cellPadding={10}
-                style={{ borderCollapse: "collapse", width: "100%" }}
-              >
-                <thead>
-                  <tr>
-                    <th>セッションID</th>
-                    <th>ユーザーID</th>
-                    <th>部屋ID</th>
-                    <th>開始時間</th>
-                    <th>終了時間</th>
-                    <th>最終確認時間</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {day.sessions.map((session) => (
-                    <tr key={session.session_id}>
-                      <td>{session.session_id}</td>
-                      <td>{session.user_id}</td>
-                      <td>{session.room_id}</td>
-                      <td>{new Date(session.start_time).toLocaleString()}</td>
-                      <td>
-                        {session.end_time
-                          ? new Date(session.end_time).toLocaleString()
-                          : "N/A"}
-                      </td>
-                      <td>{new Date(session.last_seen).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Box key={day.date} mb={4}>
+              <Typography variant="h6" gutterBottom>
+                {day.date}
+              </Typography>
+              <TableContainer component={Paper} elevation={3}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>セッションID</TableCell>
+                      <TableCell>ユーザーID</TableCell>
+                      <TableCell>部屋ID</TableCell>
+                      <TableCell>開始時間</TableCell>
+                      <TableCell>終了時間</TableCell>
+                      <TableCell>最終確認時間</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {day.sessions.map((session) => (
+                      <TableRow key={session.session_id}>
+                        <TableCell>{session.session_id}</TableCell>
+                        <TableCell>{session.user_id}</TableCell>
+                        <TableCell>{session.room_id}</TableCell>
+                        <TableCell>
+                          {new Date(session.start_time).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          {session.end_time
+                            ? new Date(session.end_time).toLocaleString()
+                            : "N/A"}
+                        </TableCell>
+                        <TableCell>
+                          {new Date(session.last_seen).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
           ))
         ) : (
-          <p>在室履歴が見つかりません。</p>
+          <Typography variant="body1">在室履歴が見つかりません。</Typography>
         )}
-      </section>
+      </Box>
 
       {/* 現在の在室者情報セクション */}
-      <section>
-        <h2>現在の在室者情報</h2>
+      <Box>
+        <Typography variant="h5" gutterBottom>
+          現在の在室者情報
+        </Typography>
         {loadingOccupants ? (
-          <p>現在の在室者情報を取得中...</p>
+          <Box display="flex" alignItems="center">
+            <CircularProgress size={24} />
+            <Typography variant="body1" ml={2}>
+              現在の在室者情報を取得中...
+            </Typography>
+          </Box>
         ) : errorOccupants ? (
-          <p style={{ color: "red" }}>エラー: {errorOccupants}</p>
+          <Alert severity="error">エラー: {errorOccupants}</Alert>
         ) : currentOccupants && currentOccupants.length > 0 ? (
-          currentOccupants.map((room) => (
-            <div key={room.room_id} style={{ marginBottom: "20px" }}>
-              <h3>
-                {room.room_name} (ID: {room.room_id})
-              </h3>
-              {room.occupants.length > 0 ? (
-                <ul>
-                  {room.occupants.map((occupant) => (
-                    <li key={occupant.user_id}>
-                      ユーザーID: {occupant.user_id}, 最終確認時間:{" "}
-                      {new Date(occupant.last_seen).toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>現在在室者はいません。</p>
-              )}
-            </div>
-          ))
+          <Grid container spacing={4}>
+            {currentOccupants.map((room) => (
+              <Grid item xs={12} md={6} key={room.room_id}>
+                <Paper elevation={3} sx={{ padding: "16px" }}>
+                  <Typography variant="h6" gutterBottom>
+                    {room.room_name} (ID: {room.room_id})
+                  </Typography>
+                  {room.occupants.length > 0 ? (
+                    <List>
+                      {room.occupants.map((occupant) => (
+                        <ListItem key={occupant.user_id} disablePadding>
+                          <ListItemText
+                            primary={`ユーザーID: ${occupant.user_id}`}
+                            secondary={`最終確認時間: ${new Date(
+                              occupant.last_seen
+                            ).toLocaleString()}`}
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography variant="body2">
+                      現在在室者はいません。
+                    </Typography>
+                  )}
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
         ) : (
-          <p>現在の在室者情報が見つかりません。</p>
+          <Typography variant="body1">
+            現在の在室者情報が見つかりません。
+          </Typography>
         )}
-      </section>
-    </div>
+      </Box>
+    </Container>
   );
 };
 
