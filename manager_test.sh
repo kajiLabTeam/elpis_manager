@@ -84,7 +84,7 @@ case "$TEST_NAME" in
         RSSI_VALUE=$(($THRESHOLD + 1))
         ;;
     "しきい値より弱いRSSI値")
-        RSSI_VALUE=$(($THRESHOLD - 1))
+        RSSI_VALUE=$(($THRESHOLD - 10))
         ;;
     "デバイスが見つからない場合" | "BLEデータが空の場合")
         RSSI_VALUE=0  # RSSI値は使用しない

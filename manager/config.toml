@@ -15,4 +15,4 @@ db_conn_str = "postgres://myuser:mypassword@localhost:5433/managerdb?sslmode=dis
 skip_registration = false
 
 [Registration]
-system_uri = "http://manager"
+system_uri = "manager"

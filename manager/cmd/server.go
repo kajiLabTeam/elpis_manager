@@ -111,6 +111,18 @@ type BeaconThreshold struct {
 	RoomID    int
 }
 
+// InquiryRequest は照会サーバへのリクエストペイロードを表します
+type InquiryRequest struct {
+	WifiData           string  `json:"wifi_data"`           // WiFiデータの内容
+	BleData            string  `json:"ble_data"`            // BLEデータの内容
+	PresenceConfidence float64 `json:"presence_confidence"` // 在室確信度
+}
+
+// InquiryResponse は照会サーバからのレスポンスを表します
+type InquiryResponse struct {
+	ServerConfidence float64 `json:"server_confidence"`
+}
+
 // multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
@@ -121,47 +133,50 @@ func parseCSV(file multipart.File) ([][]string, error) {
 	return records, nil
 }
 
-// BLEとWiFiのファイルを /api/inquiry エンドポイントに転送する
-func forwardFilesToInquiry(wifiFile multipart.File, bleFile multipart.File, proxyURL string) error {
-	if _, err := wifiFile.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	if _, err := bleFile.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
+// 照会サーバへの送信関数
+func forwardFilesToInquiry(wifiFilePath string, bleFilePath string, proxyURL string, confidence float64) (float64, error) {
+	// ファイルを読み込む
+	wifiData, err := os.ReadFile(wifiFilePath)
 	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(wifiPart, wifiFile); err != nil {
-		return err
+		return 0, fmt.Errorf("WiFiデータの読み込みに失敗しました: %v", err)
 	}
 
-	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
+	bleData, err := os.ReadFile(bleFilePath)
 	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(blePart, bleFile); err != nil {
-		return err
+		return 0, fmt.Errorf("BLEデータの読み込みに失敗しました: %v", err)
 	}
 
-	writer.Close()
+	// リクエストペイロードを作成
+	inquiryReq := InquiryRequest{
+		WifiData:           string(wifiData),
+		BleData:            string(bleData),
+		PresenceConfidence: confidence,
+	}
 
-	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), writer.FormDataContentType(), body)
+	// JSONエンコード
+	reqBody, err := json.Marshal(inquiryReq)
 	if err != nil {
-		return err
+		return 0, fmt.Errorf("照会リクエストのエンコードに失敗しました: %v", err)
+	}
+
+	// POSTリクエストを送信
+	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return 0, fmt.Errorf("照会サーバへのリクエスト送信に失敗しました: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ファイルの転送に失敗しました。ステータスコード: %d", resp.StatusCode)
+		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
 	}
 
-	return nil
+	// レスポンスをパース
+	var inquiryResp InquiryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&inquiryResp); err != nil {
+		return 0, fmt.Errorf("照会サーバのレスポンスパースに失敗しました: %v", err)
+	}
+
+	return inquiryResp.ServerConfidence, nil
 }
 
 // beaconsテーブルからすべてのUUIDとそのRSSIしきい値、room_idを取得
@@ -292,6 +307,21 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	return nil
 }
 
+// 在室確信度を計算する関数
+func calculatePresenceConfidence(foundStrongSignal bool, totalSignals int, strongSignals int) float64 {
+	if totalSignals == 0 {
+		return 0.0
+	}
+	// 強い信号の割合をパーセンテージで返す
+	confidence := (float64(strongSignals) / float64(totalSignals)) * 100
+	if foundStrongSignal {
+		// 強い信号がある場合、確信度を高く設定
+		return confidence
+	}
+	// 強い信号がない場合、確信度を低く設定
+	return confidence * 0.5
+}
+
 // 在室情報を更新する関数
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
 	var existingRoomID int
@@ -412,6 +442,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	var detectedRoomID int
 	var maxRSSI int = -1000
 
+	totalSignals := 0
+	strongSignals := 0
+
 	for _, record := range bleRecords {
 		if len(record) > 2 {
 			uuid := strings.TrimSpace(record[1])
@@ -424,7 +457,9 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 
 			if thresholds, exists := uuidThresholds[uuid]; exists {
 				for _, bt := range thresholds {
+					totalSignals++
 					if rssiValue > bt.Threshold {
+						strongSignals++
 						foundStrongSignal = true
 						if rssiValue > maxRSSI {
 							maxRSSI = rssiValue
@@ -440,7 +475,13 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		}
 	}
 
+	// 在室確信度を計算
+	confidence := calculatePresenceConfidence(foundStrongSignal, totalSignals, strongSignals)
+	log.Printf("在室確信度: %.2f%%", confidence)
+
 	currentTime := time.Now()
+
+	var serverConfidence float64
 
 	if foundStrongSignal {
 		log.Println("強い信号が検出されたため、在室情報を更新します。")
@@ -450,28 +491,44 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		} else {
 			log.Printf("ユーザーID %d の在室情報をRoomID %d に更新しました。", userID, detectedRoomID)
 		}
-	} else if foundWeakSignal {
+	}
+
+	if foundWeakSignal {
 		log.Println("弱い信号が検出されたため、照会サーバにファイルを転送します。")
-		err := forwardFilesToInquiry(wifiFile, bleFile, proxyURL)
+		serverConfidence, err = forwardFilesToInquiry(wifiFilePath, bleFilePath, proxyURL, confidence)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
-		log.Println("照会サーバへのファイル転送が完了しました。")
-	} else {
-		log.Println("BLEデータにデバイスが見つからなかったため、セッションを終了します。")
-		err = endUserSession(db, userID, currentTime)
-		if err != nil {
-			log.Printf("セッションの終了に失敗しました: %v", err)
-		} else {
-			log.Printf("ユーザーID %d のセッションを終了しました。", userID)
-		}
+		log.Printf("照会サーバからの確信度: %.2f%%", serverConfidence)
 	}
 
-	if foundStrongSignal {
-		err = updateLastSeen(db, userID, currentTime)
-		if err != nil {
-			log.Printf("last_seenの更新に失敗しました: %v", err)
+	// 照会サーバとの確信度比較
+	if foundWeakSignal {
+		if serverConfidence > confidence {
+			log.Println("照会サーバの確信度が高いため、ユーザーは在室していないと判定します。")
+			err = endUserSession(db, userID, currentTime)
+			if err != nil {
+				log.Printf("セッションの終了に失敗しました: %v", err)
+			} else {
+				log.Printf("ユーザーID %d のセッションを終了しました。", userID)
+			}
+		} else {
+			log.Println("照会サーバの確信度が低いため、ユーザーは在室していると判定します。")
+			err = updateLastSeen(db, userID, currentTime)
+			if err != nil {
+				log.Printf("last_seenの更新に失敗しました: %v", err)
+			}
+		}
+	} else {
+		if !foundStrongSignal && !foundWeakSignal {
+			log.Println("BLEデータにデバイスが見つからなかったため、セッションを終了します。")
+			err = endUserSession(db, userID, currentTime)
+			if err != nil {
+				log.Printf("セッションの終了に失敗しました: %v", err)
+			} else {
+				log.Printf("ユーザーID %d のセッションを終了しました。", userID)
+			}
 		}
 	}
 

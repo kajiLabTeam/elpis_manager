@@ -15,4 +15,4 @@ db_conn_str = "postgres://myuser:mypassword@localhost:5435/echodb?sslmode=disabl
 skip_registration = false
 
 [Registration]
-system_uri = "http://echo"
+system_uri = "echo"

@@ -6,11 +6,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
-	"mime/multipart"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,25 +37,27 @@ type RegisterResponse struct {
 	Message string `json:"message"`
 }
 
-// InquiryResponse は問い合わせレスポンスのJSON構造を表します
-type InquiryResponse struct {
-	Success             bool `json:"success"`
-	PercentageProcessed int  `json:"percentage_processed"`
+// InquiryRequest は照会サーバーへのリクエストペイロードを表します
+type InquiryRequest struct {
+	WifiData           string  `json:"wifi_data"`           // WiFiデータの内容（CSVの文字列）
+	BleData            string  `json:"ble_data"`            // BLEデータの内容（CSVの文字列）
+	PresenceConfidence float64 `json:"presence_confidence"` // 在室確信度
 }
 
-// SignalResponse はシグナルレスポンスのJSON構造を表します
-type SignalResponse struct {
-	PercentageProcessed int `json:"percentage_processed"`
+// InquiryResponse は照会サーバーからのレスポンスを表します
+type InquiryResponse struct {
+	ServerConfidence float64 `json:"server_confidence"` // 照会サーバー側の確信度
+	Success          bool    `json:"success"`           // 処理の成功可否
+	Message          string  `json:"message,omitempty"` // エラーメッセージ（必要な場合）
 }
 
 var (
 	db           *sql.DB
-	client       = &http.Client{Timeout: 5 * time.Second}
+	client       = &http.Client{Timeout: 10 * time.Second} // タイムアウトを10秒に設定
 	queryCounter int
 	counterMutex = &sync.Mutex{}
 )
 
-// main 関数はサーバーを初期化し、設定を読み込み、データベースに接続し、HTTPハンドラーを設定してサーバーを起動します。
 func main() {
 	var config Config
 	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
@@ -71,13 +71,25 @@ func main() {
 	}
 	defer db.Close()
 
+	// データベースの接続確認
+	if err := db.Ping(); err != nil {
+		log.Fatalf("データベースに接続できません: %v", err)
+	}
+	log.Println("データベースに接続しました。")
+
+	// ハンドラーの設定
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/inquiry", inquiryHandler)
 
+	// キャッシュクリーンアップのゴルーチン開始
 	go cleanupCache()
 
-	fmt.Printf("サーバーがポート :%d で起動しました\n", config.Server.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Server.Port), nil))
+	// サーバーの起動
+	address := fmt.Sprintf(":%d", config.Server.Port)
+	log.Printf("サーバーがポート %d で起動しました\n", config.Server.Port)
+	if err := http.ListenAndServe(address, nil); err != nil {
+		log.Fatalf("サーバーの起動に失敗しました: %v", err)
+	}
 }
 
 // registerHandler は /api/register エンドポイントのリクエストを処理します。メソッドに応じてPOSTまたはGETのハンドラーに分岐します。
@@ -100,9 +112,11 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("受信した /api/register リクエスト:")
-	fmt.Printf("SystemURI: %s, Port: %d\n", req.SystemURI, req.Port)
+	// リクエスト内容のログ出力
+	log.Println("受信した /api/register リクエスト:")
+	log.Printf("SystemURI: %s, Port: %d\n", req.SystemURI, req.Port)
 
+	// 組織情報の挿入または更新
 	query := `
         INSERT INTO organizations (api_endpoint, port_number)
         VALUES ($1, $2)
@@ -116,14 +130,20 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// レスポンスの作成
 	resp := RegisterResponse{
 		Message: "Success",
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("JSONエンコードエラー: %v", err)
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		return
+	}
 
-	fmt.Println("送信した /api/register レスポンス:")
-	fmt.Printf("Message: %s\n", resp.Message)
+	// レスポンス内容のログ出力
+	log.Println("送信した /api/register レスポンス:")
+	log.Printf("Message: %s\n", resp.Message)
 }
 
 // handleRegisterGet 関数は登録用のGETリクエストを処理し、データベースから現在の組織一覧を取得して返します。
@@ -158,9 +178,13 @@ func handleRegisterGet(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(organizations)
+	if err := json.NewEncoder(w).Encode(organizations); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
+	}
 
-	fmt.Println("送信した /api/register GET レスポンス（データベースからの現在の組織一覧）")
+	log.Println("送信した /api/register GET レスポンス（データベースからの現在の組織一覧）")
 }
 
 // inquiryHandler 関数は /api/inquiry エンドポイントのPOSTリクエストを処理し、受信したWiFiおよびBLEデータを各組織に問い合わせて結果を返します。
@@ -170,49 +194,39 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseMultipartForm(10 << 20) // 10 MB 制限
-	if err != nil {
-		http.Error(w, "フォームの解析エラー", http.StatusBadRequest)
+	var inquiryReq InquiryRequest
+	if err := json.NewDecoder(r.Body).Decode(&inquiryReq); err != nil {
+		log.Printf("JSONデコードエラー: %v", err)
+		http.Error(w, "リクエストの形式が正しくありません", http.StatusBadRequest)
 		return
 	}
 
-	wifiFile, _, err := r.FormFile("wifi_data")
-	if err != nil {
-		http.Error(w, "WiFiファイルの取得エラー", http.StatusBadRequest)
-		return
-	}
-	defer wifiFile.Close()
-
-	bleFile, _, err := r.FormFile("ble_data")
-	if err != nil {
-		http.Error(w, "BLEファイルの取得エラー", http.StatusBadRequest)
-		return
-	}
-	defer bleFile.Close()
-
-	wifiData, err := parseCSV(wifiFile)
+	// WiFiおよびBLEデータの解析
+	wifiData, err := parseCSVFromString(inquiryReq.WifiData)
 	if err != nil {
 		http.Error(w, "WiFi CSV の解析エラー", http.StatusBadRequest)
 		return
 	}
 
-	bleData, err := parseCSV(bleFile)
+	bleData, err := parseCSVFromString(inquiryReq.BleData)
 	if err != nil {
 		http.Error(w, "BLE CSV の解析エラー", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Println("受信した /api/inquiry リクエスト:")
-	fmt.Println("WiFi Data:")
+	// 受信データのログ出力
+	log.Println("受信した /api/inquiry リクエスト:")
+	log.Println("WiFi Data:")
 	for _, row := range wifiData {
-		fmt.Println(row)
+		log.Println(row)
 	}
 
-	fmt.Println("BLE Data:")
+	log.Println("BLE Data:")
 	for _, row := range bleData {
-		fmt.Println(row)
+		log.Println(row)
 	}
 
+	// データベースから組織情報を取得
 	query := `SELECT api_endpoint, port_number FROM organizations`
 	rows, err := db.Query(query)
 	if err != nil {
@@ -241,131 +255,139 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(organizations) == 0 {
+		http.Error(w, "組織情報が存在しません", http.StatusNotFound)
+		return
+	}
+
+	// 各組織に対してリクエストを送信し、確信度を収集
 	maxPercentage := 0
 	var wg sync.WaitGroup
-	responseChan := make(chan int, len(organizations))
+	responseChan := make(chan InquiryResponse, len(organizations))
 
 	for _, org := range organizations {
 		wg.Add(1)
 		go func(systemURI string, port int) {
 			defer wg.Done()
-			percentage := querySystem(systemURI, port, wifiData, bleData)
-			responseChan <- percentage
+			percentage, err := querySystem(systemURI, port, wifiData, bleData)
+			if err != nil {
+				log.Printf("組織 %s:%d へのクエリシステムエラー: %v", systemURI, port, err)
+				responseChan <- InquiryResponse{
+					ServerConfidence: 0,
+					Success:          false,
+					Message:          err.Error(),
+				}
+				return
+			}
+			responseChan <- InquiryResponse{
+				ServerConfidence: float64(percentage),
+				Success:          true,
+			}
 		}(org.APIEndpoint, org.PortNumber)
 	}
 
 	wg.Wait()
 	close(responseChan)
 
-	for percentage := range responseChan {
-		if percentage > maxPercentage {
-			maxPercentage = percentage
+	// 確信度の最大値を取得
+	for resp := range responseChan {
+		if resp.Success && int(resp.ServerConfidence) > maxPercentage {
+			maxPercentage = int(resp.ServerConfidence)
 		}
 	}
 
-	resp := InquiryResponse{
-		Success:             true,
-		PercentageProcessed: maxPercentage,
+	// レスポンスを作成
+	finalResp := InquiryResponse{
+		ServerConfidence: float64(maxPercentage),
+		Success:          true,
 	}
+
+	// レスポンスを送信
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(finalResp); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
+	}
 
-	fmt.Println("送信した /api/inquiry レスポンス:")
-	fmt.Printf("Success: %t, PercentageProcessed: %d\n", resp.Success, resp.PercentageProcessed)
+	// レスポンス内容のログ出力
+	log.Println("送信した /api/inquiry レスポンス:")
+	log.Printf("Success: %t, ServerConfidence: %.2f%%\n", finalResp.Success, finalResp.ServerConfidence)
 
+	// クエリカウンタのログ出力
 	counterMutex.Lock()
-	fmt.Printf("querySystem が %d 回呼び出されました\n", queryCounter)
+	log.Printf("querySystem が %d 回呼び出されました\n", queryCounter)
 	counterMutex.Unlock()
 }
 
 // querySystem 関数は指定された組織のAPIに対してWiFiおよびBLEデータを送信し、処理されたパーセンテージを取得します。
-func querySystem(systemURI string, port int, wifiData, bleData [][]string) int {
+func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int, error) {
 	counterMutex.Lock()
 	queryCounter++
 	counterMutex.Unlock()
 
 	url := fmt.Sprintf("http://%s:%d/api/signals/server", systemURI, port)
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
 
-	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
+	// CSVデータを文字列に変換
+	wifiCSV := csvToString(wifiData)
+	bleCSV := csvToString(bleData)
+
+	// リクエストペイロードを作成
+	inquiryReq := InquiryRequest{
+		WifiData:           wifiCSV,
+		BleData:            bleCSV,
+		PresenceConfidence: 0, // 必要に応じて設定
+	}
+
+	// JSONエンコード
+	reqBody, err := json.Marshal(inquiryReq)
 	if err != nil {
-		fmt.Printf("WiFiフォームファイルの作成エラー（%s）: %v\n", systemURI, err)
-		return 0
-	}
-	if err := writeCSV(wifiPart, wifiData); err != nil {
-		fmt.Printf("WiFi CSV の書き込みエラー（%s）: %v\n", systemURI, err)
-		return 0
+		return 0, fmt.Errorf("照会リクエストのエンコードに失敗しました: %v", err)
 	}
 
-	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
+	// POSTリクエストを送信
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		fmt.Printf("BLEフォームファイルの作成エラー（%s）: %v\n", systemURI, err)
-		return 0
-	}
-	if err := writeCSV(blePart, bleData); err != nil {
-		fmt.Printf("BLE CSV の書き込みエラー（%s）: %v\n", systemURI, err)
-		return 0
-	}
-
-	writer.Close()
-
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		fmt.Printf("リクエストの作成エラー（%s）: %v\n", systemURI, err)
-		return 0
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("リクエスト送信エラー（%s）: %v\n", systemURI, err)
-		return 0
+		return 0, fmt.Errorf("リクエスト送信エラー: %v", err)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("レスポンス読み取りエラー（%s）: %v\n", systemURI, err)
-		return 0
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
 	}
 
-	var signalResponse SignalResponse
-	if err := json.Unmarshal(respBody, &signalResponse); err != nil {
-		fmt.Printf("レスポンスのアンマーシャルエラー（%s）: %v\n", systemURI, err)
-		return 0
+	// レスポンスをパース
+	var signalResp InquiryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&signalResp); err != nil {
+		return 0, fmt.Errorf("レスポンスのパースエラー: %v", err)
 	}
 
-	return signalResponse.PercentageProcessed
+	if !signalResp.Success {
+		return 0, fmt.Errorf("照会サーバでの処理に失敗しました: %s", signalResp.Message)
+	}
+
+	return int(signalResp.ServerConfidence), nil
 }
 
-// writeCSV 関数は与えられたデータをCSV形式で指定されたライターに書き込みます。
-func writeCSV(writer io.Writer, data [][]string) error {
-	csvWriter := csv.NewWriter(writer)
+// csvToString 関数は2次元スライスのCSVデータを文字列に変換します。
+func csvToString(data [][]string) string {
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
 	for _, record := range data {
-		if err := csvWriter.Write(record); err != nil {
-			return err
-		}
+		writer.Write(record)
 	}
-	csvWriter.Flush()
-	return csvWriter.Error()
+	writer.Flush()
+	return buf.String()
 }
 
-// parseCSV 関数は指定されたリーダーからCSVデータを解析し、2次元スライスとして返します。
-func parseCSV(file io.Reader) ([][]string, error) {
-	reader := csv.NewReader(file)
-	var data [][]string
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		data = append(data, record)
+// parseCSVFromString 関数は文字列からCSVデータを解析し、2次元スライスとして返します。
+func parseCSVFromString(data string) ([][]string, error) {
+	reader := csv.NewReader(strings.NewReader(data))
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
 	}
-	return data, nil
+	return records, nil
 }
 
 // cleanupCache 関数は定期的にデータベースから24時間以上更新されていない組織エントリを削除します。
@@ -375,7 +397,7 @@ func cleanupCache() {
 		query := `DELETE FROM organizations WHERE last_updated < NOW() - INTERVAL '24 hours' RETURNING api_endpoint`
 		rows, err := db.Query(query)
 		if err != nil {
-			fmt.Printf("キャッシュのクリーンアップエラー: %v\n", err)
+			log.Printf("キャッシュのクリーンアップエラー: %v", err)
 			continue
 		}
 
@@ -383,7 +405,7 @@ func cleanupCache() {
 		for rows.Next() {
 			var endpoint string
 			if err := rows.Scan(&endpoint); err != nil {
-				fmt.Printf("削除されたエンドポイントのスキャンエラー: %v\n", err)
+				log.Printf("削除されたエンドポイントのスキャンエラー: %v", err)
 				continue
 			}
 			deletedEndpoints = append(deletedEndpoints, endpoint)
@@ -391,7 +413,7 @@ func cleanupCache() {
 		rows.Close()
 
 		for _, endpoint := range deletedEndpoints {
-			fmt.Printf("期限切れのキャッシュエントリを削除しました: %s\n", endpoint)
+			log.Printf("期限切れのキャッシュエントリを削除しました: %s\n", endpoint)
 		}
 	}
 }
