@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 def main():
-    # 1. データの準備と前処理
     data = [
         [1728289304401, '722eb21f-8f6a-4ba9-a12f-05c0f970a177', -52],
         [1728289305506, '8ebc2114-4abd-ba0d-b7c6-ff0f00200052', -74],
