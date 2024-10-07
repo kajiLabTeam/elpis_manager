@@ -10,3 +10,5 @@
 #   universal: false
 
 -e file:.
+setuptools==75.1.0
+    # via estimation
