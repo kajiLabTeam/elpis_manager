@@ -48,6 +48,17 @@ services:
     environment:
       - TZ=Asia/Tokyo
 
+  estimation:
+    image: python:3.12.7-bookworm
+    working_dir: /app
+    volumes:
+      - ./estimation:/app
+      - ./estimation/requirements.lock:/app/requirements.lock
+    command: >
+      /bin/sh -c " pip install uv &&  pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
+    ports:
+      - "8000:8000"
+
   postgres_manager:
     image: postgres:16.3-bookworm
     environment:
@@ -61,7 +72,7 @@ services:
       - ./manager/init.sql:/docker-entrypoint-initdb.d/init.sql
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d managerdb"]
+      test: [ "CMD-SHELL", "pg_isready -U myuser -d managerdb" ]
       interval: 15s
       retries: 10
 
@@ -78,7 +89,7 @@ services:
       - ./proxy/init.sql:/docker-entrypoint-initdb.d/init.sql
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d proxydb"]
+      test: [ "CMD-SHELL", "pg_isready -U myuser -d proxydb" ]
       interval: 15s
       retries: 10
 
@@ -95,7 +106,7 @@ services:
       - ./echo/init.sql:/docker-entrypoint-initdb.d/init.sql
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d echodb"]
+      test: [ "CMD-SHELL", "pg_isready -U myuser -d echodb" ]
       interval: 15s
       retries: 10
 
