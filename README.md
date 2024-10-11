@@ -121,7 +121,7 @@ make down
 - **推定サービスのローカル起動**
 
     ```sh
-    make restart
+    make est-local
     ```
 
 ## ヘルプの表示
