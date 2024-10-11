@@ -74,7 +74,7 @@ make down
 
 4. **サービスの停止**
 
-    すべてのサービスを停止し、関連するボリュームを削除するには:
+    関連するボリュームを削除します。
 
     ```sh
     make db-down
@@ -108,6 +108,17 @@ make down
 
     ```sh
     make e2e-test
+    ```
+
+## Python(uv)
+
+推定サーバにはPythonを使った機械学習モデルを採用しています。下記リンクからuvを導入してください。
+<https://zenn.dev/turing_motors/articles/594fbef42a36ee>
+
+- **推定サービスのローカル起動**
+
+    ```sh
+    make restart
     ```
 
 ## ヘルプの表示

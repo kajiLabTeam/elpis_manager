@@ -34,6 +34,10 @@ manager-local: ## Run the manager service locally with command-line flags
 	@echo "Running Manager Service Locally..."
 	cd ./manager && go run $(CMD_PATH) $(GO_FLAGS)
 
+est-local: ## Run the estimation service locally with command-line flags
+	@echo "Running Test Service Locally..."
+	cd ./estimation && uv run main
+
 restart-manager: ## Restart only the manager service
 	docker compose restart manager
 
