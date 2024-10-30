@@ -215,6 +215,7 @@ func getUserID(r *http.Request) string {
 	if !ok || username == "" {
 		username = "anonymous"
 	}
+	username = "相川 拓哉"
 	return username
 }
 
