@@ -73,7 +73,7 @@ CREATE INDEX idx_user_presence_sessions_last_seen ON user_presence_sessions (las
 INSERT INTO
     Users (user_id, password)
 VALUES
-    ('user1', 'password1'),
+    ('相川 拓哉', 'password1'),
     ('hihumikan', 'password2'),
     ('harutiro', 'password3');
 
