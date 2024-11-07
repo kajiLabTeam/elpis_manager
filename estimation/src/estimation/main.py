@@ -3,8 +3,8 @@ import numpy as np
 import os
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.font_manager as fm
@@ -54,19 +54,25 @@ def main():
     print(f"Missing values:\n{data.isnull().sum()}")
     print(f"Unique timestamps: {data['timestamp'].nunique()}")
 
-    data['timestamp'] = data['timestamp'].astype(int)
+    # ラベルをパーセンテージにスケーリング（0と1を0と100に変換）
+    data['percentage'] = data['label'] * 100
 
+    # ラベルデータの作成（各タイムスタンプごとに一意のラベルを取得）
+    label_df = data[['timestamp', 'percentage']].drop_duplicates(subset='timestamp')
+    y = label_df['percentage'].values
+
+    # ピボットテーブルの作成
     pivot_df = data.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
     pivot_df.fillna(-100, inplace=True)
 
-    label_df = data[['timestamp', 'label']].drop_duplicates(subset='timestamp')
-    y = label_df['label'].values
+    # Xとyのインデックスを揃える
     pivot_df = pivot_df.loc[label_df['timestamp'].values]
 
     X = pivot_df.values
 
+    # データの分割とスケーリング
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42
     )
 
     scaler = StandardScaler()
@@ -75,54 +81,57 @@ def main():
 
     warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
-    model = LogisticRegression(random_state=42, solver='liblinear', max_iter=5000)
+    # ランダムフォレスト回帰モデルの訓練
+    model = RandomForestRegressor(random_state=42)
     model.fit(X_train_scaled, y_train)
 
+    # 予測
     y_pred = model.predict(X_test_scaled)
 
-    print("\n混同行列:")
-    print(confusion_matrix(y_test, y_pred))
+    # 評価指標の計算
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
 
-    print("\n分類レポート:")
-    print(classification_report(y_test, y_pred))
+    print("\n回帰評価指標:")
+    print(f"平均絶対誤差 (MAE): {mae:.2f}")
+    print(f"平均二乗誤差 (MSE): {mse:.2f}")
+    print(f"決定係数 (R²): {r2:.2f}")
 
-    print("正解率:", accuracy_score(y_test, y_pred))
-
+    # ハイパーパラメータチューニング
     param_grid = {
-        'C': [0.01, 0.1, 1, 10, 100],
-        'penalty': ['l2']
+        'n_estimators': [100, 200, 300],
+        'max_depth': [None, 10, 20, 30],
+        'min_samples_split': [2, 5, 10]
     }
 
-    grid = GridSearchCV(LogisticRegression(random_state=42, solver='liblinear', max_iter=5000),
-                        param_grid, refit=True, cv=5, scoring='f1')
+    grid = GridSearchCV(RandomForestRegressor(random_state=42),
+                        param_grid, refit=True, cv=5, scoring='neg_mean_absolute_error')
     grid.fit(X_train_scaled, y_train)
 
     print("\n最適なハイパーパラメータ:")
     print(grid.best_params_)
 
+    # 最適モデルによる予測
     y_pred_grid = grid.predict(X_test_scaled)
 
-    print("\nハイパーパラメータチューニング後の分類レポート:")
-    print(classification_report(y_test, y_pred_grid))
+    # 再評価指標の計算
+    mae_grid = mean_absolute_error(y_test, y_pred_grid)
+    mse_grid = mean_squared_error(y_test, y_pred_grid)
+    r2_grid = r2_score(y_test, y_pred_grid)
 
-    print("正解率:", accuracy_score(y_test, y_pred_grid))
+    print("\nハイパーパラメータチューニング後の回帰評価指標:")
+    print(f"平均絶対誤差 (MAE): {mae_grid:.2f}")
+    print(f"平均二乗誤差 (MSE): {mse_grid:.2f}")
+    print(f"決定係数 (R²): {r2_grid:.2f}")
 
-    cm = confusion_matrix(y_test, y_pred_grid)
-
-    try:
-        font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
-        font_prop = fm.FontProperties(fname=font_path)
-        plt.rcParams['font.family'] = font_prop.get_name()
-    except FileNotFoundError:
-        print("指定したフォントが見つかりません。日本語が正しく表示されない可能性があります。")
-
-    plt.figure(figsize=(6,4))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=['Negative', 'Positive'],
-                yticklabels=['Negative', 'Positive'])
-    plt.xlabel('予測値')
-    plt.ylabel('実測値')
-    plt.title('混同行列')
+    # 結果の可視化（実測値 vs 予測値）
+    plt.figure(figsize=(8,6))
+    sns.scatterplot(x=y_test, y=y_pred_grid)
+    plt.plot([0, 100], [0, 100], color='red', linestyle='--')
+    plt.xlabel('実測値 (%)')
+    plt.ylabel('予測値 (%)')
+    plt.title('実測値 vs 予測値')
     plt.show()
 
 if __name__ == "__main__":
