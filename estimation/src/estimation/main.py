@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import joblib  # モデル保存用
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 
@@ -32,7 +33,7 @@ def load_data(negative_dir, positive_dir):
                 print(f"Loaded positive sample file: {filename}")
 
     if not data_list:
-        print("データが読み込まれていません。ディレクトリ内のCSVファイルを確認してください。")
+        print("No data loaded. Please check the CSV files in the directories.")
         return None
 
     data = pd.concat(data_list, ignore_index=True)
@@ -95,10 +96,10 @@ def train_model(X, y):
     mse = mean_squared_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print("\n回帰評価指標:")
-    print(f"平均絶対誤差 (MAE): {mae:.2f}")
-    print(f"平均二乗誤差 (MSE): {mse:.2f}")
-    print(f"決定係数 (R²): {r2:.2f}")
+    print("\nRegression Evaluation Metrics:")
+    print(f"Mean Absolute Error (MAE): {mae:.2f}")
+    print(f"Mean Squared Error (MSE): {mse:.2f}")
+    print(f"R² Score: {r2:.2f}")
 
     # ハイパーパラメータチューニング
     param_grid = {
@@ -117,7 +118,7 @@ def train_model(X, y):
     )
     grid.fit(X_train_scaled, y_train)
 
-    print("\n最適なハイパーパラメータ:")
+    print("\nBest Hyperparameters:")
     print(grid.best_params_)
 
     # 最適モデルによる予測
@@ -128,12 +129,17 @@ def train_model(X, y):
     mse_grid = mean_squared_error(y_test, y_pred_grid)
     r2_grid = r2_score(y_test, y_pred_grid)
 
-    print("\nハイパーパラメータチューニング後の回帰評価指標:")
-    print(f"平均絶対誤差 (MAE): {mae_grid:.2f}")
-    print(f"平均二乗誤差 (MSE): {mse_grid:.2f}")
-    print(f"決定係数 (R²): {r2_grid:.2f}")
+    print("\nRegression Evaluation Metrics After Hyperparameter Tuning:")
+    print(f"Mean Absolute Error (MAE): {mae_grid:.2f}")
+    print(f"Mean Squared Error (MSE): {mse_grid:.2f}")
+    print(f"R² Score: {r2_grid:.2f}")
 
-    # 並列処理が有効になっているため、処理速度が向上します。
+    # モデルとスケーラーの保存（pivot_columnsはここでは保存しない）
+    joblib.dump(grid.best_estimator_, 'trained_model.joblib')
+    joblib.dump(scaler, 'scaler.joblib')
+    # pivot_columnsはmain関数で保存する
+
+    print("\nModel and scaler have been saved.")
 
     return grid, scaler
 
@@ -195,8 +201,10 @@ def main():
     # モデルの訓練と評価
     grid, scaler = train_model(X, y)
 
-    # ピボットテーブルの列を保存（judgement データで使用）
+    # pivot_columnsの保存（train_model関数ではなくmain関数で行う）
     pivot_columns = pivot_df.columns
+    joblib.dump(pivot_columns.tolist(), 'pivot_columns.joblib')
+    print("\nPivot columns have been saved.")
 
     # judgement ディレクトリ内のファイルに対する予測
     predict_judgement(grid, scaler, judgement_dir, pivot_columns)
