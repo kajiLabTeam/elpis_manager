@@ -40,7 +40,7 @@ est-local: ## Run the estimation service locally with command-line flags
 
 est-api-local: ## Run the estimation API service locally with command-line flags
 	@echo "Running Estimation API Service Locally..."
-	cd ./estimation-api && uvicorn src.estimation.app:app --reload
+	cd ./estimation && uv run src/estimation/app.py 
 
 restart-manager: ## Restart only the manager service
 	docker compose restart manager

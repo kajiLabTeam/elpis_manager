@@ -11,12 +11,26 @@ import os
 
 app = FastAPI(title="RSSI Percentage Prediction API")
 
+# モデル保存用ディレクトリの指定
+MODEL_DIR = 'model'
+
 # モデル、スケーラー、pivot_columnsのロード
 try:
-    model = joblib.load('trained_model.joblib')
-    scaler = joblib.load('scaler.joblib')
-    pivot_columns = joblib.load('pivot_columns.joblib')
-    print("Model, scaler, and pivot_columns loaded successfully.")
+    model_path = os.path.join(MODEL_DIR, 'trained_model.joblib')
+    scaler_path = os.path.join(MODEL_DIR, 'scaler.joblib')
+    pivot_columns_path = os.path.join(MODEL_DIR, 'pivot_columns.joblib')
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"Scaler file not found at {scaler_path}")
+    if not os.path.exists(pivot_columns_path):
+        raise FileNotFoundError(f"Pivot columns file not found at {pivot_columns_path}")
+
+    model = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+    pivot_columns = joblib.load(pivot_columns_path)
+    print("Model, scaler, and pivot_columns loaded successfully from the 'model' directory.")
 except Exception as e:
     print(f"Error loading model, scaler, or pivot_columns: {e}")
     raise e
@@ -44,6 +58,7 @@ async def predict_percentage(file: UploadFile = File(...)):
         # 学習時のピボットテーブルと同じ列順に揃える
         pivot_df = pivot_df.reindex(columns=pivot_columns, fill_value=-100)
 
+        # 特徴量の抽出
         X_judgement = pivot_df.values
 
         # データのスケーリング

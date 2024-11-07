@@ -72,7 +72,7 @@ def preprocess_data(data):
 
     return X, y, pivot_df
 
-def train_model(X, y):
+def train_model(X, y, model_dir):
     # データの分割とスケーリング
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
@@ -134,16 +134,19 @@ def train_model(X, y):
     print(f"Mean Squared Error (MSE): {mse_grid:.2f}")
     print(f"R² Score: {r2_grid:.2f}")
 
-    # モデルとスケーラーの保存（pivot_columnsはここでは保存しない）
-    joblib.dump(grid.best_estimator_, 'trained_model.joblib')
-    joblib.dump(scaler, 'scaler.joblib')
+    # モデル保存用ディレクトリの作成
+    os.makedirs(model_dir, exist_ok=True)
+
+    # モデルとスケーラーの保存
+    joblib.dump(grid.best_estimator_, os.path.join(model_dir, 'trained_model.joblib'))
+    joblib.dump(scaler, os.path.join(model_dir, 'scaler.joblib'))
     # pivot_columnsはmain関数で保存する
 
-    print("\nModel and scaler have been saved.")
+    print("\nModel and scaler have been saved to the 'model' directory.")
 
     return grid, scaler
 
-def predict_judgement(grid, scaler, judgement_dir, pivot_columns):
+def predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir):
     results = []
 
     for filename in os.listdir(judgement_dir):
@@ -181,14 +184,15 @@ def predict_judgement(grid, scaler, judgement_dir, pivot_columns):
 
     # 結果をCSVに保存
     results_df = pd.DataFrame(results)
-    results_df.to_csv('judgement_results.csv', index=False)
-    print("\nJudgement results saved to 'judgement_results.csv'")
+    results_df.to_csv(os.path.join(model_dir, 'judgement_results.csv'), index=False)
+    print("\nJudgement results saved to 'model/judgement_results.csv'")
     print(results_df)
 
 def main():
     negative_dir = 'negative_samples'
     positive_dir = 'positive_samples'
     judgement_dir = 'judgement'
+    model_dir = 'model'  # モデル保存用ディレクトリ
 
     # データの読み込み
     data = load_data(negative_dir, positive_dir)
@@ -199,15 +203,16 @@ def main():
     X, y, pivot_df = preprocess_data(data)
 
     # モデルの訓練と評価
-    grid, scaler = train_model(X, y)
+    grid, scaler = train_model(X, y, model_dir)
 
-    # pivot_columnsの保存（train_model関数ではなくmain関数で行う）
+    # pivot_columnsの保存（modelディレクトリに保存）
     pivot_columns = pivot_df.columns
-    joblib.dump(pivot_columns.tolist(), 'pivot_columns.joblib')
-    print("\nPivot columns have been saved.")
+    os.makedirs(model_dir, exist_ok=True)  # 再度確認
+    joblib.dump(pivot_columns.tolist(), os.path.join(model_dir, 'pivot_columns.joblib'))
+    print("\nPivot columns have been saved to the 'model' directory.")
 
     # judgement ディレクトリ内のファイルに対する予測
-    predict_judgement(grid, scaler, judgement_dir, pivot_columns)
+    predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir)
 
 if __name__ == "__main__":
     main()
