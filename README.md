@@ -13,14 +13,15 @@
 1. リポジトリをクローンします。
 
     ```sh
-    git clone git@github.com:kajiLabTeam/elpis_proxy.git
-    cd elpis_proxy
+    git clone git@github.com:kajiLabTeam/elpis_manager.git
+    cd elpis_manager
     ```
 
 2. 必要な依存関係をインストールします。
 
     ```sh
-    go mod download
+    cd ./manager && go mod download
+    cd ./echo && go mod download
     ```
 
 ## 使い方
@@ -75,13 +76,57 @@ make down
     make manager-local
     ```
 
-4. **サービスの停止**
+4. **推定サービスの起動**
+
+    別のターミナルで、推定サービス（Estimation API）をローカルで起動します。
+
+    ```sh
+    make est-api-local
+    ```
+
+5. **サービスの停止**
 
     関連するボリュームを削除します。
 
     ```sh
     make db-down
     ```
+
+### エンドツーエンドテストの実行
+
+プロジェクトには、各サービスのエンドツーエンドテスト用のシェルスクリプトが用意されています。以下のMakeコマンドを使用してテストを実行できます。
+
+- **すべてのエンドツーエンドテストを実行**
+
+    ```sh
+    make e2e-test
+    ```
+
+- **個別のテストを実行**
+
+    - **推定APIのテスト**
+
+        ```sh
+        make est-api-test
+        ```
+
+    - **マネージャーサービスのテスト**
+
+        ```sh
+        make manager-test
+        ```
+
+    - **プロキシサービスのテスト**
+
+        ```sh
+        make proxy-test
+        ```
+
+    - **ウェブサービスのテスト**
+
+        ```sh
+        make web-test
+        ```
 
 ### その他のコマンド
 
@@ -107,21 +152,16 @@ make down
     make restart-proxy
     ```
 
-- **エンドツーエンドテストの実行**
-
-    ```sh
-    make e2e-test
-    ```
-
 ## Python(uv)
 
 推定サーバにはPythonを使った機械学習モデルを採用しています。下記リンクからuvを導入してください。
-<https://zenn.dev/turing_motors/articles/594fbef42a36ee>
+
+[uvの導入ガイド](https://zenn.dev/turing_motors/articles/594fbef42a36ee)
 
 - **推定サービスのローカル起動**
 
     ```sh
-    make est-local
+    make est-api-local
     ```
 
 ## ヘルプの表示
