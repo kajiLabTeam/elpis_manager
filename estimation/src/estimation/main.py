@@ -7,6 +7,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.font_manager as fm
+import warnings
+from sklearn.exceptions import ConvergenceWarning
 
 def main():
     negative_dir = 'negative_samples'
@@ -17,29 +20,24 @@ def main():
     for filename in os.listdir(negative_dir):
         if filename.endswith('.csv'):
             filepath = os.path.join(negative_dir, filename)
-            if filename.startswith('ble'):
+            if filename.startswith('ble') or filename.startswith('wifi'):
                 df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
-            elif filename.startswith('wifi'):
-                df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
-            else:
-                continue
-            df['label'] = 0
-            data_list.append(df)
+                df['label'] = 0
+                data_list.append(df)
 
     for filename in os.listdir(positive_dir):
         if filename.endswith('.csv'):
             filepath = os.path.join(positive_dir, filename)
-            if filename.startswith('ble'):
+            if filename.startswith('ble') or filename.startswith('wifi'):
                 df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
-            elif filename.startswith('wifi'):
-                df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
-            else:
-                continue
-            df['label'] = 1
-            data_list.append(df)
+                df['label'] = 1
+                data_list.append(df)
+
+    if not data_list:
+        print("データが読み込まれていません。ディレクトリ内のCSVファイルを確認してください。")
+        return
 
     data = pd.concat(data_list, ignore_index=True)
-
     data['timestamp'] = data['timestamp'].astype(int)
 
     pivot_df = data.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
@@ -47,7 +45,6 @@ def main():
 
     label_df = data[['timestamp', 'label']].drop_duplicates(subset='timestamp')
     y = label_df['label'].values
-
     pivot_df = pivot_df.loc[label_df['timestamp'].values]
 
     X = pivot_df.values
@@ -60,7 +57,9 @@ def main():
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    model = LogisticRegression(random_state=42)
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+    model = LogisticRegression(random_state=42, solver='liblinear', max_iter=5000)
     model.fit(X_train_scaled, y_train)
 
     y_pred = model.predict(X_test_scaled)
@@ -75,11 +74,11 @@ def main():
 
     param_grid = {
         'C': [0.01, 0.1, 1, 10, 100],
-        'solver': ['liblinear', 'lbfgs'],
         'penalty': ['l2']
     }
 
-    grid = GridSearchCV(LogisticRegression(random_state=42), param_grid, refit=True, cv=5, scoring='f1')
+    grid = GridSearchCV(LogisticRegression(random_state=42, solver='liblinear', max_iter=5000),
+                        param_grid, refit=True, cv=5, scoring='f1')
     grid.fit(X_train_scaled, y_train)
 
     print("\n最適なハイパーパラメータ:")
@@ -94,8 +93,17 @@ def main():
 
     cm = confusion_matrix(y_test, y_pred_grid)
 
+    try:
+        font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
+        font_prop = fm.FontProperties(fname=font_path)
+        plt.rcParams['font.family'] = font_prop.get_name()
+    except FileNotFoundError:
+        print("指定したフォントが見つかりません。日本語が正しく表示されない可能性があります。")
+
     plt.figure(figsize=(6,4))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Negative', 'Positive'], yticklabels=['Negative', 'Positive'])
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['Negative', 'Positive'],
+                yticklabels=['Negative', 'Positive'])
     plt.xlabel('予測値')
     plt.ylabel('実測値')
     plt.title('混同行列')
