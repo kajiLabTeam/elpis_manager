@@ -5,18 +5,13 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import matplotlib.pyplot as plt
-import seaborn as sns
-import matplotlib.font_manager as fm
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 
-def main():
-    negative_dir = 'negative_samples'
-    positive_dir = 'positive_samples'
-
+def load_data(negative_dir, positive_dir):
     data_list = []
 
+    # ネガティブサンプルの読み込み
     for filename in os.listdir(negative_dir):
         if filename.endswith('.csv'):
             filepath = os.path.join(negative_dir, filename)
@@ -26,6 +21,7 @@ def main():
                 data_list.append(df)
                 print(f"Loaded negative sample file: {filename}")
 
+    # ポジティブサンプルの読み込み
     for filename in os.listdir(positive_dir):
         if filename.endswith('.csv'):
             filepath = os.path.join(positive_dir, filename)
@@ -37,10 +33,13 @@ def main():
 
     if not data_list:
         print("データが読み込まれていません。ディレクトリ内のCSVファイルを確認してください。")
-        return
+        return None
 
     data = pd.concat(data_list, ignore_index=True)
-    print(f"Total samples loaded: {len(data_list)}")
+    return data
+
+def preprocess_data(data):
+    print(f"Total samples loaded: {len(data)}")
     print(f"Total data points: {data.shape[0]}")
     print(f"Number of negative samples: {(data['label'] == 0).sum()}")
     print(f"Number of positive samples: {(data['label'] == 1).sum()}")
@@ -70,6 +69,9 @@ def main():
 
     X = pivot_df.values
 
+    return X, y, pivot_df
+
+def train_model(X, y):
     # データの分割とスケーリング
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
@@ -105,8 +107,14 @@ def main():
         'min_samples_split': [2, 5, 10]
     }
 
-    grid = GridSearchCV(RandomForestRegressor(random_state=42),
-                        param_grid, refit=True, cv=5, scoring='neg_mean_absolute_error')
+    grid = GridSearchCV(
+        RandomForestRegressor(random_state=42),
+        param_grid,
+        refit=True,
+        cv=5,
+        scoring='neg_mean_absolute_error',
+        n_jobs=-1  # 並列処理を有効にする
+    )
     grid.fit(X_train_scaled, y_train)
 
     print("\n最適なハイパーパラメータ:")
@@ -125,14 +133,73 @@ def main():
     print(f"平均二乗誤差 (MSE): {mse_grid:.2f}")
     print(f"決定係数 (R²): {r2_grid:.2f}")
 
-    # 結果の可視化（実測値 vs 予測値）
-    plt.figure(figsize=(8,6))
-    sns.scatterplot(x=y_test, y=y_pred_grid)
-    plt.plot([0, 100], [0, 100], color='red', linestyle='--')
-    plt.xlabel('実測値 (%)')
-    plt.ylabel('予測値 (%)')
-    plt.title('実測値 vs 予測値')
-    plt.show()
+    # 並列処理が有効になっているため、処理速度が向上します。
+
+    return grid, scaler
+
+def predict_judgement(grid, scaler, judgement_dir, pivot_columns):
+    results = []
+
+    for filename in os.listdir(judgement_dir):
+        if filename.endswith('.csv'):
+            filepath = os.path.join(judgement_dir, filename)
+            print(f"Processing judgement file: {filename}")
+
+            try:
+                # CSVの読み込み
+                df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
+
+                # ピボットテーブルの作成
+                pivot_df = df.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
+                pivot_df.fillna(-100, inplace=True)
+
+                # 学習時のピボットテーブルと同じ列順に揃える
+                pivot_df = pivot_df.reindex(columns=pivot_columns, fill_value=-100)
+
+                X_judgement = pivot_df.values
+
+                # データのスケーリング
+                X_judgement_scaled = scaler.transform(X_judgement)
+
+                # 予測
+                y_pred_judgement = grid.predict(X_judgement_scaled)
+
+                # ファイル全体の適合度（平均値）を計算
+                average_percentage = np.mean(y_pred_judgement)
+
+                print(f"File: {filename} - Predicted Percentage: {average_percentage:.2f}%")
+                results.append({'filename': filename, 'predicted_percentage': average_percentage})
+            except Exception as e:
+                print(f"Error processing file {filename}: {e}")
+                results.append({'filename': filename, 'predicted_percentage': None})
+
+    # 結果をCSVに保存
+    results_df = pd.DataFrame(results)
+    results_df.to_csv('judgement_results.csv', index=False)
+    print("\nJudgement results saved to 'judgement_results.csv'")
+    print(results_df)
+
+def main():
+    negative_dir = 'negative_samples'
+    positive_dir = 'positive_samples'
+    judgement_dir = 'judgement'
+
+    # データの読み込み
+    data = load_data(negative_dir, positive_dir)
+    if data is None:
+        return
+
+    # データの前処理
+    X, y, pivot_df = preprocess_data(data)
+
+    # モデルの訓練と評価
+    grid, scaler = train_model(X, y)
+
+    # ピボットテーブルの列を保存（judgement データで使用）
+    pivot_columns = pivot_df.columns
+
+    # judgement ディレクトリ内のファイルに対する予測
+    predict_judgement(grid, scaler, judgement_dir, pivot_columns)
 
 if __name__ == "__main__":
     main()
