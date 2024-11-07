@@ -5,8 +5,9 @@ CMD_PATH := ./cmd/server.go
 
 # Define default targets
 .PHONY: build up down restart clean help \
-        proxy-local manager-local \
-        restart-manager restart-proxy e2e-test \
+        proxy-local manager-local est-model-local est-api-local \
+        restart-manager restart-proxy \
+        e2e-test est-api-test manager-test proxy-test web-test \
         db-up db-down
 
 # Default flags for running Go services locally
@@ -34,9 +35,9 @@ manager-local: ## Run the manager service locally with command-line flags
 	@echo "Running Manager Service Locally..."
 	cd ./manager && go run $(CMD_PATH) $(GO_FLAGS)
 
-est-local: ## Run the estimation service locally with command-line flags
+est-model-local: ## Run the estimation service locally with command-line flags
 	@echo "Running Estimation Service Locally..."
-	cd ./estimation && uv run main
+	cd ./estimation && uv run src/estimation/main.py
 
 est-api-local: ## Run the estimation API service locally with command-line flags
 	@echo "Running Estimation API Service Locally..."
@@ -48,14 +49,23 @@ restart-manager: ## Restart only the manager service
 restart-proxy: ## Restart only the proxy service
 	docker compose restart proxy
 
-e2e-test: ## Run end-to-end tests by executing test_send_data.sh
-	./manager_test.sh
-
 db-up: ## Start only the database services
 	docker compose up -d postgres_manager postgres_proxy
 
 db-down: ## Stop and remove the database services and their volumes
 	docker compose rm -s -v -f postgres_manager postgres_proxy
+
+est-api-test: ## Run the est-api e2e test
+	bash ./e2e/est-api_test.sh
+
+manager-test: ## Run the manager e2e test
+	bash ./e2e/manager_test.sh
+
+proxy-test: ## Run the proxy e2e test
+	bash ./e2e/proxy_test.sh
+
+web-test: ## Run the web e2e test
+	bash ./e2e/web_test.sh
 
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
