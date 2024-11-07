@@ -3,8 +3,8 @@
 # e2e_test.sh: エンドツーエンドテストスクリプト（ユーザーがファイルを選択）
 
 # 設定
-NEGATIVE_DIR="./estimation/negative_samples"
-POSITIVE_DIR="./estimation/positive_samples"
+NEGATIVE_DIR="../estimation/negative_samples"
+POSITIVE_DIR="../estimation/positive_samples"
 API_URL="${API_URL:-http://localhost:8101/predict}"  # ポート8101に変更
 
 echo "APIエンドポイント: $API_URL"
