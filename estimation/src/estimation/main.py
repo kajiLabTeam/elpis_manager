@@ -40,6 +40,20 @@ def main():
         return
 
     data = pd.concat(data_list, ignore_index=True)
+    print(f"Total samples loaded: {len(data_list)}")
+    print(f"Total data points: {data.shape[0]}")
+    print(f"Number of negative samples: {(data['label'] == 0).sum()}")
+    print(f"Number of positive samples: {(data['label'] == 1).sum()}")
+    print("Data head:")
+    print(data.head())
+    print(f"Class distribution:\n{data['label'].value_counts()}")
+    print(f"Unique identifiers: {data['identifier'].nunique()}")
+    print("Sample data points:")
+    print(data.sample(5))
+    print(f"Data types:\n{data.dtypes}")
+    print(f"Missing values:\n{data.isnull().sum()}")
+    print(f"Unique timestamps: {data['timestamp'].nunique()}")
+
     data['timestamp'] = data['timestamp'].astype(int)
 
     pivot_df = data.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
