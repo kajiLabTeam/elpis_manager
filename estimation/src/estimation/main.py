@@ -24,6 +24,7 @@ def main():
                 df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
                 df['label'] = 0
                 data_list.append(df)
+                print(f"Loaded negative sample file: {filename}")
 
     for filename in os.listdir(positive_dir):
         if filename.endswith('.csv'):
@@ -32,6 +33,7 @@ def main():
                 df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
                 df['label'] = 1
                 data_list.append(df)
+                print(f"Loaded positive sample file: {filename}")
 
     if not data_list:
         print("データが読み込まれていません。ディレクトリ内のCSVファイルを確認してください。")
