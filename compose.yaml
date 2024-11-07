@@ -48,16 +48,27 @@ services:
     environment:
       - TZ=Asia/Tokyo
 
-  estimation:
+  estimation-model:
     image: python:3.12.7-bookworm
     working_dir: /app
     volumes:
       - ./estimation:/app
       - ./estimation/requirements.lock:/app/requirements.lock
     command: >
-      /bin/sh -c " pip install uv &&  pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
+      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
     ports:
-      - "8000:8000"
+      - "8100:8000"
+
+  estimation-api:
+    image: python:3.12.7-bookworm
+    working_dir: /app
+    volumes:
+      - ./estimation:/app
+      - ./estimation/requirements.lock:/app/requirements.lock
+    command: >
+      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
+    ports:
+      - "8101:8000"
 
   postgres_manager:
     image: postgres:16.3-bookworm
