@@ -23,7 +23,6 @@ import (
 	"github.com/rs/cors"
 )
 
-// Config は設定ファイルの構造を表します
 type Config struct {
 	Mode         string
 	ServerPort   string `toml:"server_port"`
@@ -48,18 +47,15 @@ type RegistrationConfig struct {
 	SystemURI string `toml:"system_uri"`
 }
 
-// UploadResponse は信号データのアップロードに対するレスポンスを表します
 type UploadResponse struct {
 	Message string `json:"message"`
 }
 
-// RegisterRequest は登録リクエストのペイロードを表します
 type RegisterRequest struct {
 	SystemURI string `json:"system_uri"`
 	Port      int    `json:"port"`
 }
 
-// PresenceSession はユーザーの在室セッションを表す構造体
 type PresenceSession struct {
 	SessionID int        `json:"session_id"`
 	UserID    int        `json:"user_id"`
@@ -69,61 +65,51 @@ type PresenceSession struct {
 	LastSeen  time.Time  `json:"last_seen"`
 }
 
-// UserPresenceDay は1日ごとのユーザーの在室情報を表す構造体
 type UserPresenceDay struct {
 	Date     string            `json:"date"`
 	Sessions []PresenceSession `json:"sessions"`
 }
 
-// PresenceHistoryResponse は在室履歴のレスポンス構造体
 type PresenceHistoryResponse struct {
 	History []UserPresenceDay `json:"history"`
 }
 
-// CurrentOccupant は現在の在室者情報を表す構造体
 type CurrentOccupant struct {
 	UserID   string    `json:"user_id"`
 	LastSeen time.Time `json:"last_seen"`
 }
 
-// RoomOccupants は部屋ごとの在室者情報を表す構造体
 type RoomOccupants struct {
 	RoomID    int               `json:"room_id"`
 	RoomName  string            `json:"room_name"`
 	Occupants []CurrentOccupant `json:"occupants"`
 }
 
-// CurrentOccupantsResponse は現在の在室者情報のレスポンス構造体
 type CurrentOccupantsResponse struct {
 	Rooms []RoomOccupants `json:"rooms"`
 }
 
-// HealthCheckResponse は健康チェックのレスポンス構造体
 type HealthCheckResponse struct {
 	Status    string `json:"status"`
 	Database  string `json:"database"`
 	Timestamp string `json:"timestamp"`
 }
 
-// BeaconThreshold はUUIDに対応するしきい値と部屋IDを保持する構造体
 type BeaconThreshold struct {
 	Threshold int
 	RoomID    int
 }
 
-// InquiryRequest は照会サーバへのリクエストペイロードを表します
 type InquiryRequest struct {
-	WifiData           string  `json:"wifi_data"`           // WiFiデータの内容
-	BleData            string  `json:"ble_data"`            // BLEデータの内容
-	PresenceConfidence float64 `json:"presence_confidence"` // 在室確信度
+	WifiData           string  `json:"wifi_data"`
+	BleData            string  `json:"ble_data"`
+	PresenceConfidence float64 `json:"presence_confidence"`
 }
 
-// InquiryResponse は照会サーバからのレスポンスを表します
 type InquiryResponse struct {
 	ServerConfidence float64 `json:"server_confidence"`
 }
 
-// multipart.File からCSVファイルをパースする
 func parseCSV(file multipart.File) ([][]string, error) {
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
@@ -133,9 +119,7 @@ func parseCSV(file multipart.File) ([][]string, error) {
 	return records, nil
 }
 
-// 照会サーバへの送信関数
 func forwardFilesToInquiry(wifiFilePath string, bleFilePath string, proxyURL string, confidence float64) (float64, error) {
-	// ファイルを読み込む
 	wifiData, err := os.ReadFile(wifiFilePath)
 	if err != nil {
 		return 0, fmt.Errorf("WiFiデータの読み込みに失敗しました: %v", err)
@@ -146,20 +130,17 @@ func forwardFilesToInquiry(wifiFilePath string, bleFilePath string, proxyURL str
 		return 0, fmt.Errorf("BLEデータの読み込みに失敗しました: %v", err)
 	}
 
-	// リクエストペイロードを作成
 	inquiryReq := InquiryRequest{
 		WifiData:           string(wifiData),
 		BleData:            string(bleData),
 		PresenceConfidence: confidence,
 	}
 
-	// JSONエンコード
 	reqBody, err := json.Marshal(inquiryReq)
 	if err != nil {
 		return 0, fmt.Errorf("照会リクエストのエンコードに失敗しました: %v", err)
 	}
 
-	// POSTリクエストを送信
 	resp, err := http.Post(fmt.Sprintf("%s/api/inquiry", proxyURL), "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return 0, fmt.Errorf("照会サーバへのリクエスト送信に失敗しました: %v", err)
@@ -170,7 +151,6 @@ func forwardFilesToInquiry(wifiFilePath string, bleFilePath string, proxyURL str
 		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
 	}
 
-	// レスポンスをパース
 	var inquiryResp InquiryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&inquiryResp); err != nil {
 		return 0, fmt.Errorf("照会サーバのレスポンスパースに失敗しました: %v", err)
@@ -179,7 +159,6 @@ func forwardFilesToInquiry(wifiFilePath string, bleFilePath string, proxyURL str
 	return inquiryResp.ServerConfidence, nil
 }
 
-// beaconsテーブルからすべてのUUIDとそのRSSIしきい値、room_idを取得
 func getUUIDsAndThresholds(db *sql.DB) (map[string][]BeaconThreshold, error) {
 	rows, err := db.Query("SELECT service_uuid, rssi, room_id FROM beacons")
 	if err != nil {
@@ -209,7 +188,6 @@ func getUUIDsAndThresholds(db *sql.DB) (map[string][]BeaconThreshold, error) {
 	return uuidThresholds, nil
 }
 
-// ユーザIDを取得する関数（Basic認証を使用）
 func getUserID(r *http.Request) string {
 	username, _, ok := r.BasicAuth()
 	if !ok || username == "" {
@@ -219,7 +197,6 @@ func getUserID(r *http.Request) string {
 	return username
 }
 
-// ユーザーIDからデータベースのユーザーIDを取得
 func getUserIDFromDB(db *sql.DB, username string) (int, error) {
 	var userID int
 	err := db.QueryRow("SELECT id FROM users WHERE user_id = $1", username).Scan(&userID)
@@ -229,7 +206,6 @@ func getUserIDFromDB(db *sql.DB, username string) (int, error) {
 	return userID, nil
 }
 
-// ファイルを保存するヘルパー関数
 func saveUploadedFile(file multipart.File, path string) error {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return err
@@ -247,7 +223,6 @@ func saveUploadedFile(file multipart.File, path string) error {
 	return nil
 }
 
-// セッションを開始する関数
 func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) error {
 	_, err := db.Exec(`
         INSERT INTO user_presence_sessions (user_id, room_id, start_time, last_seen)
@@ -260,7 +235,6 @@ func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) e
 	return nil
 }
 
-// セッションを終了する関数
 func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 	result, err := db.Exec(`
         UPDATE user_presence_sessions
@@ -284,7 +258,6 @@ func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 	return nil
 }
 
-// セッションのlast_seenを更新する関数
 func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	result, err := db.Exec(`
         UPDATE user_presence_sessions
@@ -308,22 +281,17 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	return nil
 }
 
-// 在室確信度を計算する関数
 func calculatePresenceConfidence(foundStrongSignal bool, totalSignals int, strongSignals int) float64 {
 	if totalSignals == 0 {
 		return 0.0
 	}
-	// 強い信号の割合をパーセンテージで返す
 	confidence := (float64(strongSignals) / float64(totalSignals)) * 100
 	if foundStrongSignal {
-		// 強い信号がある場合、確信度を高く設定
 		return confidence
 	}
-	// 強い信号がない場合、確信度を低く設定
 	return confidence * 0.5
 }
 
-// 在室情報を更新する関数
 func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) error {
 	var existingRoomID int
 	err := db.QueryRow(`
@@ -361,7 +329,6 @@ func updateUserPresence(db *sql.DB, userID int, roomID int, lastSeen time.Time) 
 	return nil
 }
 
-// /api/signals/submit エンドポイントの処理
 func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string][]BeaconThreshold) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
@@ -476,7 +443,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		}
 	}
 
-	// 在室確信度を計算
 	confidence := calculatePresenceConfidence(foundStrongSignal, totalSignals, strongSignals)
 	log.Printf("在室確信度: %.2f%%", confidence)
 
@@ -504,7 +470,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 		log.Printf("照会サーバからの確信度: %.2f%%", serverConfidence)
 	}
 
-	// 照会サーバとの確信度比較
 	if foundWeakSignal {
 		if serverConfidence > confidence {
 			log.Println("照会サーバの確信度が高いため、ユーザーは在室していないと判定します。")
@@ -538,12 +503,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, pro
 	json.NewEncoder(w).Encode(response)
 }
 
-// /api/signals/server エンドポイントの処理
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, proxyURL string, uuidThresholds map[string][]BeaconThreshold) {
 	handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds)
 }
 
-// /api/presence_history エンドポイントの処理
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	userIDStr := r.URL.Query().Get("user_id")
 	if userIDStr == "" {
@@ -624,7 +587,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 }
 
-// /api/current_occupants エンドポイントの処理
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	query := `
         SELECT 
@@ -703,7 +665,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	}
 }
 
-// /health エンドポイントの処理
 func handleHealthCheck(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	response := HealthCheckResponse{
 		Status:    "ok",
@@ -726,7 +687,6 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// クリーンアップ処理を行う関数
 func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -850,7 +810,6 @@ func main() {
 
 	go cleanUpOldSessions(db, 10*time.Minute)
 
-	// ハンドラーの設定
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		handleSignalsSubmit(w, r, db, proxyURL, uuidThresholds)
 	})
