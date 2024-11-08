@@ -49,6 +49,9 @@ restart-manager: ## Restart only the manager service
 restart-proxy: ## Restart only the proxy service
 	docker compose restart proxy
 
+restart-est-api: ## Restart only the estimation API service
+	docker compose restart estimation-api
+
 db-up: ## Start only the database services
 	docker compose up -d postgres_manager postgres_proxy
 

@@ -35,6 +35,13 @@ except Exception as e:
     print(f"Error loading model, scaler, or pivot_columns: {e}")
     raise e
 
+@app.get("/")
+async def healthcheck():
+    """
+    ヘルスチェックエンドポイント
+    """
+    return {"status": "running"}
+
 @app.post("/predict")
 async def predict_percentage(file: UploadFile = File(...)):
     """
@@ -78,4 +85,4 @@ async def predict_percentage(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     # FastAPI アプリケーションを実行
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8101)
