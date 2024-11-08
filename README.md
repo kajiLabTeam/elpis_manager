@@ -4,6 +4,17 @@
 
 企業では、プロジェクト名にギリシャ神話から名前を付けることがあります。本プロジェクトでもその慣例に従い、正式名称ではありませんが、屋内位置推定における「希望」を象徴するものとして、暫定的に「elpis」と名付けています。
 
+## インストールの前に
+
+elpisのプロジェクトの全体像や技術的な背景を理解するためには、以下のドキュメントを事前に確認しておくのをおすすめします。
+
+- [研究概要](https://kjlb.esa.io/posts/5571)
+- [デプロイサーバ](https://kjlb.esa.io/posts/6399)
+- [DB設計](https://kjlb.esa.io/posts/5762)
+- [API定義](https://kjlb.esa.io/posts/5764)
+- [データフロー](https://kjlb.esa.io/posts/5751)
+- [関連研究](https://kjlb.esa.io/posts/5810)
+
 ## 必要条件
 
 - Go 1.22以上
@@ -98,7 +109,9 @@ make down
 
 ### OpenAPIの参照方法
 
-プロジェクトには、API仕様を確認・テストするためのSwagger UI、Swagger Editor、およびSwagger APIサービスが含まれています。
+本プロジェクトには、API仕様を確認・テストするためのSwagger UI、Swagger Editor、およびSwagger APIサービスが含まれています。
+
+現在はmanagerのAPI状況を確認できます。
 
 #### Swagger UIの使用
 
@@ -205,7 +218,7 @@ FastAPIを使用した推定サービス（Estimation API）は、自動的にOp
     ```
 
 - **個別のテストを実行**
-
+  
     - **推定APIのテスト**
 
         ```sh
