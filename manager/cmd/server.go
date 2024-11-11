@@ -74,7 +74,23 @@ type UserPresenceDay struct {
 	Sessions []PresenceSession `json:"sessions"`
 }
 
+type AllUsersPresenceDay struct {
+	Date  string               `json:"date"`
+	Users []UserPresenceDetail `json:"users"`
+}
+
+type UserPresenceDetail struct {
+	UserID   int               `json:"user_id"`
+	Sessions []PresenceSession `json:"sessions"`
+}
+
 type PresenceHistoryResponse struct {
+	UserHistory *UserPresenceResponse `json:"user_history,omitempty"`
+	AllHistory  []AllUsersPresenceDay `json:"all_history,omitempty"`
+}
+
+type UserPresenceResponse struct {
+	UserID  int               `json:"user_id"`
 	History []UserPresenceDay `json:"history"`
 }
 
@@ -441,29 +457,121 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	userIDStr := r.URL.Query().Get("user_id")
-	if userIDStr == "" {
-		http.Error(w, "user_id パラメータが必要です", http.StatusBadRequest)
-		return
+	dateStr := r.URL.Query().Get("date") // 新たに date クエリパラメータを追加
+	var since time.Time
+	var err error
+
+	if dateStr != "" {
+		since, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			http.Error(w, "無効な date パラメータです。フォーマットは YYYY-MM-DD です。", http.StatusBadRequest)
+			return
+		}
+		// 日付の開始時間を設定（その日の00:00:00）
+		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
+	} else {
+		since = time.Now().AddDate(0, -1, 0) // デフォルトで過去1か月
 	}
 
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "無効な user_id パラメータです", http.StatusBadRequest)
-		return
+	var sessions []PresenceSession
+	var response PresenceHistoryResponse
+
+	if userIDStr != "" {
+		// ユーザーごとの在室履歴を取得
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			http.Error(w, "無効な user_id パラメータです", http.StatusBadRequest)
+			return
+		}
+
+		sessions, err = fetchUserSessions(db, userID, since)
+		if err != nil {
+			http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+			log.Printf("在室履歴取得クエリエラー: %v", err)
+			return
+		}
+
+		historyMap := make(map[string][]PresenceSession)
+		for _, session := range sessions {
+			date := session.StartTime.Format("2006-01-02")
+			historyMap[date] = append(historyMap[date], session)
+		}
+
+		var userHistory []UserPresenceDay
+		for date, sessions := range historyMap {
+			userHistory = append(userHistory, UserPresenceDay{
+				Date:     date,
+				Sessions: sessions,
+			})
+		}
+
+		sort.Slice(userHistory, func(i, j int) bool {
+			return userHistory[i].Date < userHistory[j].Date
+		})
+
+		userIDInt, _ := strconv.Atoi(userIDStr) // エラーチェック済みのため無視
+		response.UserHistory = &UserPresenceResponse{
+			UserID:  userIDInt,
+			History: userHistory,
+		}
+	} else {
+		// 全ユーザーの日毎の在室履歴を取得
+		sessions, err = fetchAllSessions(db, since)
+		if err != nil {
+			http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+			log.Printf("在室履歴取得クエリエラー: %v", err)
+			return
+		}
+
+		// 日ごとにユーザーをグループ化
+		dayUserMap := make(map[string]map[int][]PresenceSession)
+		for _, session := range sessions {
+			date := session.StartTime.Format("2006-01-02")
+			if _, exists := dayUserMap[date]; !exists {
+				dayUserMap[date] = make(map[int][]PresenceSession)
+			}
+			dayUserMap[date][session.UserID] = append(dayUserMap[date][session.UserID], session)
+		}
+
+		var allHistory []AllUsersPresenceDay
+		for date, usersMap := range dayUserMap {
+			var users []UserPresenceDetail
+			for userID, userSessions := range usersMap {
+				users = append(users, UserPresenceDetail{
+					UserID:   userID,
+					Sessions: userSessions,
+				})
+			}
+			allHistory = append(allHistory, AllUsersPresenceDay{
+				Date:  date,
+				Users: users,
+			})
+		}
+
+		sort.Slice(allHistory, func(i, j int) bool {
+			return allHistory[i].Date < allHistory[j].Date
+		})
+
+		response.AllHistory = allHistory
 	}
 
-	oneMonthAgo := time.Now().AddDate(0, -1, 0)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
+	}
+}
 
+func fetchUserSessions(db *sql.DB, userID int, since time.Time) ([]PresenceSession, error) {
 	rows, err := db.Query(`
         SELECT session_id, user_id, room_id, start_time, end_time, last_seen
         FROM user_presence_sessions
         WHERE user_id = $1 AND start_time >= $2
         ORDER BY start_time
-    `, userID, oneMonthAgo)
+    `, userID, since)
 	if err != nil {
-		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
-		log.Printf("在室履歴取得クエリエラー: %v", err)
-		return
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -484,39 +592,45 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 
 	if err := rows.Err(); err != nil {
-		http.Error(w, "在室履歴の読み取り中にエラーが発生しました", http.StatusInternalServerError)
-		log.Printf("rows.Err(): %v", err)
-		return
+		return nil, err
 	}
 
-	historyMap := make(map[string][]PresenceSession)
-	for _, session := range sessions {
-		date := session.StartTime.Format("2006-01-02")
-		historyMap[date] = append(historyMap[date], session)
+	return sessions, nil
+}
+
+func fetchAllSessions(db *sql.DB, since time.Time) ([]PresenceSession, error) {
+	rows, err := db.Query(`
+        SELECT session_id, user_id, room_id, start_time, end_time, last_seen
+        FROM user_presence_sessions
+        WHERE start_time >= $1
+        ORDER BY start_time
+    `, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []PresenceSession
+	for rows.Next() {
+		var session PresenceSession
+		var endTime sql.NullTime
+		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime, &session.LastSeen); err != nil {
+			log.Printf("在室履歴のスキャンエラー: %v", err)
+			continue
+		}
+		if endTime.Valid {
+			session.EndTime = &endTime.Time
+		} else {
+			session.EndTime = nil
+		}
+		sessions = append(sessions, session)
 	}
 
-	var history []UserPresenceDay
-	for date, sessions := range historyMap {
-		history = append(history, UserPresenceDay{
-			Date:     date,
-			Sessions: sessions,
-		})
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	sort.Slice(history, func(i, j int) bool {
-		return history[i].Date < history[j].Date
-	})
-
-	response := PresenceHistoryResponse{
-		History: history,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
-		log.Printf("JSONエンコードエラー: %v", err)
-		return
-	}
+	return sessions, nil
 }
 
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
