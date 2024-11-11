@@ -22,6 +22,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  TextField,
 } from "@mui/material";
 
 // 型定義（必要に応じて追加・修正してください）
@@ -40,7 +41,22 @@ interface UserPresenceDay {
 }
 
 interface PresenceHistoryResponse {
+  user_id: number;
   history: UserPresenceDay[];
+}
+
+interface AllUsersPresenceDay {
+  date: string;
+  users: UserPresenceDetail[];
+}
+
+interface UserPresenceDetail {
+  user_id: number;
+  sessions: PresenceSession[];
+}
+
+interface AllPresenceHistoryResponse {
+  all_history: AllUsersPresenceDay[];
 }
 
 interface CurrentOccupant {
@@ -60,21 +76,22 @@ interface CurrentOccupantsResponse {
 
 const App: React.FC = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const storedServerUrl = isDevelopment ? localStorage.getItem('serverUrl') || "https://elpis-m1.kajilab.dev" : "https://elpis-m1.kajilab.dev";
+  const storedServerUrl = isDevelopment ? (localStorage.getItem('serverUrl') || "http://localhost:8010") : "https://elpis-m1.kajilab.dev";
+
+  // ユーザーIDをステートとして管理（初期値は1）
+  const [userId, setUserId] = useState<number>(1);
 
   const [serverUrl, setServerUrl] = useState<string>(storedServerUrl);
-  const USER_ID = 1;
-
-  const [presenceHistory, setPresenceHistory] = useState<
-    UserPresenceDay[] | null
-  >(null);
-  const [currentOccupants, setCurrentOccupants] = useState<
-    RoomOccupants[] | null
-  >(null);
+  const [presenceHistory, setPresenceHistory] = useState<UserPresenceDay[] | null>(null);
+  const [allPresenceHistory, setAllPresenceHistory] = useState<AllUsersPresenceDay[] | null>(null);
+  const [currentOccupants, setCurrentOccupants] = useState<RoomOccupants[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(true);
+  const [loadingAllHistory, setLoadingAllHistory] = useState<boolean>(true);
   const [loadingOccupants, setLoadingOccupants] = useState<boolean>(true);
   const [errorHistory, setErrorHistory] = useState<string | null>(null);
+  const [errorAllHistory, setErrorAllHistory] = useState<string | null>(null);
   const [errorOccupants, setErrorOccupants] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>("");
 
   // サーバーURLの選択肢
   const serverOptions = [
@@ -82,33 +99,36 @@ const App: React.FC = () => {
     { label: "開発環境", value: "http://localhost:8010" },
   ];
 
-  // サーバーURLが変更されたときにデータを再フェッチ
+  // ユーザーIDの選択肢（必要に応じてAPIから取得）
+  // ここではサンプルとして固定のリストを使用
+  const userOptions = [
+    { label: "ユーザー1", value: 1 },
+    { label: "ユーザー2", value: 2 },
+    { label: "ユーザー3", value: 3 },
+    // 必要に応じて追加
+  ];
+
+  // サーバーURLが変更されたり、選択されたユーザーIDや日付が変更されたときにデータを再フェッチ
   useEffect(() => {
     // データを取得する関数
     const fetchData = async () => {
+      // 特定ユーザーの在室履歴取得
       setLoadingHistory(true);
       setErrorHistory(null);
       setPresenceHistory(null);
+      const presenceHistoryUrl = selectedDate 
+        ? `${serverUrl}/api/users/${userId}/presence_history?date=${selectedDate}`
+        : `${serverUrl}/api/users/${userId}/presence_history`;
 
-      setLoadingOccupants(true);
-      setErrorOccupants(null);
-      setCurrentOccupants(null);
-
-      // 在室履歴の取得
       const fetchPresenceHistory = async () => {
         try {
-          const response = await fetch(
-            `${serverUrl}/api/presence_history?user_id=${USER_ID}`,
-            {
-              headers: {
-                Accept: "application/json",
-              },
-            }
-          );
+          const response = await fetch(presenceHistoryUrl, {
+            headers: {
+              Accept: "application/json",
+            },
+          });
           if (!response.ok) {
-            throw new Error(
-              `Error: ${response.status} ${response.statusText}`
-            );
+            throw new Error(`Error: ${response.status} ${response.statusText}`);
           }
           const data: PresenceHistoryResponse = await response.json();
           setPresenceHistory(data.history);
@@ -119,7 +139,37 @@ const App: React.FC = () => {
         }
       };
 
+      // 全ユーザーの日毎の在室履歴取得
+      setLoadingAllHistory(true);
+      setErrorAllHistory(null);
+      setAllPresenceHistory(null);
+      const allPresenceHistoryUrl = selectedDate 
+        ? `${serverUrl}/api/presence_history?date=${selectedDate}`
+        : `${serverUrl}/api/presence_history`;
+
+      const fetchAllPresenceHistory = async () => {
+        try {
+          const response = await fetch(allPresenceHistoryUrl, {
+            headers: {
+              Accept: "application/json",
+            },
+          });
+          if (!response.ok) {
+            throw new Error(`Error: ${response.status} ${response.statusText}`);
+          }
+          const data: AllPresenceHistoryResponse = await response.json();
+          setAllPresenceHistory(data.all_history);
+        } catch (error: any) {
+          setErrorAllHistory(error.message);
+        } finally {
+          setLoadingAllHistory(false);
+        }
+      };
+
       // 現在の在室者情報の取得
+      setLoadingOccupants(true);
+      setErrorOccupants(null);
+      setCurrentOccupants(null);
       const fetchCurrentOccupants = async () => {
         try {
           const response = await fetch(`${serverUrl}/api/current_occupants`, {
@@ -128,9 +178,7 @@ const App: React.FC = () => {
             },
           });
           if (!response.ok) {
-            throw new Error(
-              `Error: ${response.status} ${response.statusText}`
-            );
+            throw new Error(`Error: ${response.status} ${response.statusText}`);
           }
           const data: CurrentOccupantsResponse = await response.json();
           setCurrentOccupants(data.rooms);
@@ -142,13 +190,13 @@ const App: React.FC = () => {
       };
 
       // 並行してデータを取得
-      await Promise.all([fetchPresenceHistory(), fetchCurrentOccupants()]);
+      await Promise.all([fetchPresenceHistory(), fetchAllPresenceHistory(), fetchCurrentOccupants()]);
     };
 
     fetchData();
-  }, [serverUrl]); // serverUrl が変更されるたびに再実行
+  }, [serverUrl, userId, selectedDate]); // userId を依存配列に追加
 
-  // ドロップダウンの変更ハンドラー
+  // サーバー選択の変更ハンドラー
   const handleServerChange = (
     event: React.ChangeEvent<{ value: unknown }>
   ) => {
@@ -159,14 +207,27 @@ const App: React.FC = () => {
     }
   };
 
+  // ユーザーID選択の変更ハンドラー
+  const handleUserChange = (
+    event: React.ChangeEvent<{ value: unknown }>
+  ) => {
+    const selectedUserId = event.target.value as number;
+    setUserId(selectedUserId);
+  };
+
+  // 日付選択ハンドラー
+  const handleDateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedDate(event.target.value);
+  };
+
   return (
     <Container maxWidth="lg" sx={{ padding: "20px" }}>
-      <Box mb={4} display="flex" alignItems="center" justifyContent="space-between">
+      <Box mb={4} display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap">
         <Typography variant="h4" gutterBottom>
           在室履歴と現在の在室者情報
         </Typography>
         {/* サーバー選択ドロップダウン */}
-        <FormControl variant="outlined" size="small" sx={{ minWidth: 200 }}>
+        <FormControl variant="outlined" size="small" sx={{ minWidth: 200, mr: 2, mt: { xs: 2, sm: 0 } }}>
           <InputLabel id="server-select-label">サーバー選択</InputLabel>
           <Select
             labelId="server-select-label"
@@ -182,12 +243,59 @@ const App: React.FC = () => {
             ))}
           </Select>
         </FormControl>
+        {/* ユーザーID選択ドロップダウン */}
+        <FormControl variant="outlined" size="small" sx={{ minWidth: 150, mr: 2, mt: { xs: 2, sm: 0 } }}>
+          <InputLabel id="user-select-label">ユーザーID</InputLabel>
+          <Select
+            labelId="user-select-label"
+            id="user-select"
+            value={userId}
+            onChange={handleUserChange}
+            label="ユーザーID"
+          >
+            {userOptions.map((user) => (
+              <MenuItem key={user.value} value={user.value}>
+                {user.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        {/* または、ユーザーIDを直接入力する場合は以下を使用 */}
+        {/* 
+        <TextField
+          id="user-id-input"
+          label="ユーザーID"
+          type="number"
+          value={userId}
+          onChange={(e) => setUserId(Number(e.target.value))}
+          InputLabelProps={{
+            shrink: true,
+          }}
+          variant="outlined"
+          size="small"
+          sx={{ width: 150, mr: 2, mt: { xs: 2, sm: 0 } }}
+        />
+        */}
+        {/* 日付選択フィールド */}
+        <TextField
+          id="date"
+          label="日付を選択"
+          type="date"
+          value={selectedDate}
+          onChange={handleDateChange}
+          InputLabelProps={{
+            shrink: true,
+          }}
+          variant="outlined"
+          size="small"
+          sx={{ width: 200, mt: { xs: 2, sm: 0 } }}
+        />
       </Box>
 
-      {/* 在室履歴セクション */}
+      {/* 特定ユーザーの在室履歴セクション */}
       <Box mb={6}>
         <Typography variant="h5" gutterBottom>
-          在室履歴
+          特定ユーザーの在室履歴 (ユーザーID: {userId})
         </Typography>
         {loadingHistory ? (
           <Box display="flex" alignItems="center">
@@ -242,6 +350,72 @@ const App: React.FC = () => {
           ))
         ) : (
           <Typography variant="body1">在室履歴が見つかりません。</Typography>
+        )}
+      </Box>
+
+      {/* 全ユーザーの日毎の在室履歴セクション */}
+      <Box mb={6}>
+        <Typography variant="h5" gutterBottom>
+          全ユーザーの日毎の在室履歴
+        </Typography>
+        {loadingAllHistory ? (
+          <Box display="flex" alignItems="center">
+            <CircularProgress size={24} />
+            <Typography variant="body1" ml={2}>
+              全ユーザーの在室履歴を取得中...
+            </Typography>
+          </Box>
+        ) : errorAllHistory ? (
+          <Alert severity="error">エラー: {errorAllHistory}</Alert>
+        ) : allPresenceHistory && allPresenceHistory.length > 0 ? (
+          allPresenceHistory.map((day) => (
+            <Box key={day.date} mb={4}>
+              <Typography variant="h6" gutterBottom>
+                {day.date}
+              </Typography>
+              {day.users.map((user) => (
+                <Box key={user.user_id} mb={2}>
+                  <Typography variant="subtitle1">
+                    ユーザーID: {user.user_id}
+                  </Typography>
+                  <TableContainer component={Paper} elevation={3}>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>セッションID</TableCell>
+                          <TableCell>部屋ID</TableCell>
+                          <TableCell>開始時間</TableCell>
+                          <TableCell>終了時間</TableCell>
+                          <TableCell>最終確認時間</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {user.sessions.map((session) => (
+                          <TableRow key={session.session_id}>
+                            <TableCell>{session.session_id}</TableCell>
+                            <TableCell>{session.room_id}</TableCell>
+                            <TableCell>
+                              {new Date(session.start_time).toLocaleString()}
+                            </TableCell>
+                            <TableCell>
+                              {session.end_time
+                                ? new Date(session.end_time).toLocaleString()
+                                : "N/A"}
+                            </TableCell>
+                            <TableCell>
+                              {new Date(session.last_seen).toLocaleString()}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              ))}
+            </Box>
+          ))
+        ) : (
+          <Typography variant="body1">全ユーザーの在室履歴が見つかりません。</Typography>
         )}
       </Box>
 
