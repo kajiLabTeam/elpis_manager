@@ -122,7 +122,6 @@ func parseCSV(file multipart.File) ([][]string, error) {
 	return records, nil
 }
 
-// 推定サーバにBLEデータを送信して確信度を取得
 func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (float64, error) {
 	file, err := os.Open(bleFilePath)
 	if err != nil {
@@ -173,7 +172,6 @@ func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (f
 	return percentage, nil
 }
 
-// 照会サーバにデータを送信して確信度を取得
 func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquiryURL string, confidence float64) (float64, error) {
 	wifiData, err := os.ReadFile(wifiFilePath)
 	if err != nil {
@@ -308,15 +306,12 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 
 func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, inquiryConfidence float64, lastSeen time.Time) error {
 	if inquiryConfidence > estimationConfidence {
-		// 照会サーバの確信度が高い場合、在室していないと判断
 		err := endUserSession(db, userID, lastSeen)
 		if err != nil {
 			return fmt.Errorf("セッションの終了に失敗しました: %v", err)
 		}
 		log.Printf("ユーザーID %d は在室していないと判定しました。照会サーバ確信度: %.2f%%, 推定サーバ確信度: %.2f%%", userID, inquiryConfidence, estimationConfidence)
 	} else {
-		// 推定サーバの確信度が高い場合、在室していると判断
-		// 既存のセッションを更新するか、新規セッションを開始
 		var existingRoomID int
 		err := db.QueryRow(`
             SELECT room_id FROM user_presence_sessions
@@ -325,8 +320,6 @@ func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, in
 
 		if err != nil {
 			if err == sql.ErrNoRows {
-				// セッションが存在しない場合、新規セッションを開始
-				// ここでは仮にroom_idを1としています。実際には適切なroom_idを設定してください。
 				err = startUserSession(db, userID, 1, lastSeen)
 				if err != nil {
 					return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
@@ -335,7 +328,6 @@ func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, in
 				return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
 			}
 		} else {
-			// セッションが存在する場合、last_seenを更新
 			err = updateLastSeen(db, userID, lastSeen)
 			if err != nil {
 				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
@@ -401,7 +393,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		return
 	}
 
-	// 推定サーバにBLEデータを送信
 	estimationConfidence, err := forwardFilesToEstimationServer(bleFilePath, estimationURL)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("推定サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
@@ -412,7 +403,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	currentTime := time.Now()
 
 	if estimationConfidence >= 20.0 && estimationConfidence <= 70.0 {
-		// 確信度が20～70の間の場合、照会サーバに依頼
 		inquiryConfidence, err := forwardFilesToInquiryServer(wifiFilePath, bleFilePath, inquiryURL, estimationConfidence)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
@@ -420,21 +410,17 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		}
 		log.Printf("照会サーバからの確信度: %.2f%%", inquiryConfidence)
 
-		// 照会サーバの確信度と推定サーバの確信度を比較して在室判定
 		err = updateUserPresence(db, userID, estimationConfidence, inquiryConfidence, currentTime)
 		if err != nil {
 			log.Printf("在室情報の更新に失敗しました: %v", err)
 		}
 	} else {
-		// 確信度が20未満または70を超える場合、推定サーバの確信度のみで判定
 		if estimationConfidence > 70.0 {
-			// 在室していると判断
-			err = updateUserPresence(db, userID, estimationConfidence, 0, currentTime) // inquiryConfidenceは0
+			err = updateUserPresence(db, userID, estimationConfidence, 0, currentTime)
 			if err != nil {
 				log.Printf("在室情報の更新に失敗しました: %v", err)
 			}
 		} else {
-			// 在室していないと判断
 			err = endUserSession(db, userID, currentTime)
 			if err != nil {
 				log.Printf("セッションの終了に失敗しました: %v", err)
