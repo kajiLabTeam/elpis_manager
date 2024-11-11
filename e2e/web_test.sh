@@ -53,9 +53,9 @@ select ACTION in "${ACTIONS[@]}"; do
             read -p "特定の日付を指定しますか？ (y/n): " SPECIFY_DATE
             if [[ "$SPECIFY_DATE" =~ ^[Yy]$ ]]; then
                 read -p "日付を入力してください（YYYY-MM-DD）: " DATE
-                PRESENCE_HISTORY_URL="${SERVER_URL}/api/presence_history?user_id=${USER_ID}&date=${DATE}"
+                PRESENCE_HISTORY_URL="${SERVER_URL}/api/users/${USER_ID}/presence_history?date=${DATE}"
             else
-                PRESENCE_HISTORY_URL="${SERVER_URL}/api/presence_history?user_id=${USER_ID}"
+                PRESENCE_HISTORY_URL="${SERVER_URL}/api/users/${USER_ID}/presence_history"
             fi
             echo "ユーザーID $USER_ID の在室履歴を取得中..."
             echo "実行コマンド: curl -s \"$PRESENCE_HISTORY_URL\" -H \"Accept: application/json\" | jq ."

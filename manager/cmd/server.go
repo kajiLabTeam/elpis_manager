@@ -85,8 +85,7 @@ type UserPresenceDetail struct {
 }
 
 type PresenceHistoryResponse struct {
-	UserHistory *UserPresenceResponse `json:"user_history,omitempty"`
-	AllHistory  []AllUsersPresenceDay `json:"all_history,omitempty"`
+	AllHistory []AllUsersPresenceDay `json:"all_history,omitempty"`
 }
 
 type UserPresenceResponse struct {
@@ -456,7 +455,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 }
 
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	userIDStr := r.URL.Query().Get("user_id")
+	// user_id クエリパラメータの処理を削除
 	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
@@ -472,83 +471,43 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		since = time.Now().AddDate(0, -1, 0)
 	}
 
-	var sessions []PresenceSession
-	var response PresenceHistoryResponse
+	sessions, err := fetchAllSessions(db, since)
+	if err != nil {
+		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		log.Printf("在室履歴取得クエリエラー: %v", err)
+		return
+	}
 
-	if userIDStr != "" {
-		userID, err := strconv.Atoi(userIDStr)
-		if err != nil {
-			http.Error(w, "無効な user_id パラメータです", http.StatusBadRequest)
-			return
+	dayUserMap := make(map[string]map[int][]PresenceSession)
+	for _, session := range sessions {
+		date := session.StartTime.Format("2006-01-02")
+		if _, exists := dayUserMap[date]; !exists {
+			dayUserMap[date] = make(map[int][]PresenceSession)
 		}
+		dayUserMap[date][session.UserID] = append(dayUserMap[date][session.UserID], session)
+	}
 
-		sessions, err = fetchUserSessions(db, userID, since)
-		if err != nil {
-			http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
-			log.Printf("在室履歴取得クエリエラー: %v", err)
-			return
-		}
-
-		historyMap := make(map[string][]PresenceSession)
-		for _, session := range sessions {
-			date := session.StartTime.Format("2006-01-02")
-			historyMap[date] = append(historyMap[date], session)
-		}
-
-		var userHistory []UserPresenceDay
-		for date, sessions := range historyMap {
-			userHistory = append(userHistory, UserPresenceDay{
-				Date:     date,
-				Sessions: sessions,
+	var allHistory []AllUsersPresenceDay
+	for date, usersMap := range dayUserMap {
+		var users []UserPresenceDetail
+		for userID, userSessions := range usersMap {
+			users = append(users, UserPresenceDetail{
+				UserID:   userID,
+				Sessions: userSessions,
 			})
 		}
-
-		sort.Slice(userHistory, func(i, j int) bool {
-			return userHistory[i].Date < userHistory[j].Date
+		allHistory = append(allHistory, AllUsersPresenceDay{
+			Date:  date,
+			Users: users,
 		})
+	}
 
-		userIDInt, _ := strconv.Atoi(userIDStr)
-		response.UserHistory = &UserPresenceResponse{
-			UserID:  userIDInt,
-			History: userHistory,
-		}
-	} else {
-		sessions, err = fetchAllSessions(db, since)
-		if err != nil {
-			http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
-			log.Printf("在室履歴取得クエリエラー: %v", err)
-			return
-		}
+	sort.Slice(allHistory, func(i, j int) bool {
+		return allHistory[i].Date < allHistory[j].Date
+	})
 
-		dayUserMap := make(map[string]map[int][]PresenceSession)
-		for _, session := range sessions {
-			date := session.StartTime.Format("2006-01-02")
-			if _, exists := dayUserMap[date]; !exists {
-				dayUserMap[date] = make(map[int][]PresenceSession)
-			}
-			dayUserMap[date][session.UserID] = append(dayUserMap[date][session.UserID], session)
-		}
-
-		var allHistory []AllUsersPresenceDay
-		for date, usersMap := range dayUserMap {
-			var users []UserPresenceDetail
-			for userID, userSessions := range usersMap {
-				users = append(users, UserPresenceDetail{
-					UserID:   userID,
-					Sessions: userSessions,
-				})
-			}
-			allHistory = append(allHistory, AllUsersPresenceDay{
-				Date:  date,
-				Users: users,
-			})
-		}
-
-		sort.Slice(allHistory, func(i, j int) bool {
-			return allHistory[i].Date < allHistory[j].Date
-		})
-
-		response.AllHistory = allHistory
+	response := PresenceHistoryResponse{
+		AllHistory: allHistory,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -853,17 +812,55 @@ func main() {
 
 	go cleanUpOldSessions(db, 10*time.Minute)
 
+	// カスタムハンドラを作成
+	http.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
+		// URLパスを分解
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// エンドポイントの形式を確認
+		// 必要な形式: /api/users/{user_id}/presence_history
+		if len(parts) == 4 && parts[0] == "api" && parts[1] == "users" && parts[3] == "presence_history" && r.Method == http.MethodGet {
+			userIDStr := parts[2]
+			userID, err := strconv.Atoi(userIDStr)
+			if err != nil {
+				http.Error(w, "無効な user_id です", http.StatusBadRequest)
+				return
+			}
+			handleUserPresenceHistory(w, r, db, userID)
+			return
+		}
+		// 一致しない場合は404
+		http.NotFound(w, r)
+	})
+
+	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
+			return
+		}
+		handlePresenceHistory(w, r, db)
+	})
+
+	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
+			return
+		}
+		handleCurrentOccupants(w, r, db)
+	})
+
 	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
+			return
+		}
 		handleSignalsSubmit(w, r, db, estimationURL, inquiryURL)
 	})
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
+			return
+		}
 		handleSignalsServer(w, r, db, estimationURL, inquiryURL)
-	})
-	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
-		handlePresenceHistory(w, r, db)
-	})
-	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
-		handleCurrentOccupants(w, r, db)
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -882,5 +879,61 @@ func main() {
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, handler); err != nil {
 		log.Fatalf("サーバを開始できませんでした: %s\n", err)
+	}
+}
+
+// 新しいハンドラ関数: 特定ユーザーの在室履歴を取得
+func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB, userID int) {
+	// 日付のクエリパラメータを取得
+	dateStr := r.URL.Query().Get("date")
+	var since time.Time
+	var err error
+
+	if dateStr != "" {
+		since, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			http.Error(w, "無効な date パラメータです。フォーマットは YYYY-MM-DD です。", http.StatusBadRequest)
+			return
+		}
+		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
+	} else {
+		since = time.Now().AddDate(0, -1, 0)
+	}
+
+	sessions, err := fetchUserSessions(db, userID, since)
+	if err != nil {
+		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		log.Printf("在室履歴取得クエリエラー: %v", err)
+		return
+	}
+
+	historyMap := make(map[string][]PresenceSession)
+	for _, session := range sessions {
+		date := session.StartTime.Format("2006-01-02")
+		historyMap[date] = append(historyMap[date], session)
+	}
+
+	var userHistory []UserPresenceDay
+	for date, sessions := range historyMap {
+		userHistory = append(userHistory, UserPresenceDay{
+			Date:     date,
+			Sessions: sessions,
+		})
+	}
+
+	sort.Slice(userHistory, func(i, j int) bool {
+		return userHistory[i].Date < userHistory[j].Date
+	})
+
+	response := UserPresenceResponse{
+		UserID:  userID,
+		History: userHistory,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		log.Printf("JSONエンコードエラー: %v", err)
+		return
 	}
 }
