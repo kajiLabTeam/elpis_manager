@@ -84,7 +84,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U myuser -d managerdb" ]
-      interval: 15s
+      interval: 20s
       retries: 10
 
   postgres_proxy:
@@ -101,7 +101,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U myuser -d proxydb" ]
-      interval: 15s
+      interval: 20s
       retries: 10
 
   postgres_echo:
