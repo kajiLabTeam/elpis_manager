@@ -23,6 +23,7 @@ import {
   Select,
   MenuItem,
   TextField,
+  SelectChangeEvent, // 追加
 } from "@mui/material";
 
 // 型定義（必要に応じて追加・修正してください）
@@ -74,9 +75,17 @@ interface CurrentOccupantsResponse {
   rooms: RoomOccupants[];
 }
 
+// ユーザーオプションの型定義
+interface UserOption {
+  label: string;
+  value: number;
+}
+
 const App: React.FC = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const storedServerUrl = isDevelopment ? (localStorage.getItem('serverUrl') || "http://localhost:8010") : "https://elpis-m1.kajilab.dev";
+  const storedServerUrl = isDevelopment
+    ? localStorage.getItem('serverUrl') || "http://localhost:8010"
+    : "https://elpis-m1.kajilab.dev";
 
   // ユーザーIDをステートとして管理（初期値は1）
   const [userId, setUserId] = useState<number>(1);
@@ -101,7 +110,7 @@ const App: React.FC = () => {
 
   // ユーザーIDの選択肢（必要に応じてAPIから取得）
   // ここではサンプルとして固定のリストを使用
-  const userOptions = [
+  const userOptions: UserOption[] = [
     { label: "ユーザー1", value: 1 },
     { label: "ユーザー2", value: 2 },
     { label: "ユーザー3", value: 3 },
@@ -116,7 +125,7 @@ const App: React.FC = () => {
       setLoadingHistory(true);
       setErrorHistory(null);
       setPresenceHistory(null);
-      const presenceHistoryUrl = selectedDate 
+      const presenceHistoryUrl = selectedDate
         ? `${serverUrl}/api/users/${userId}/presence_history?date=${selectedDate}`
         : `${serverUrl}/api/users/${userId}/presence_history`;
 
@@ -143,7 +152,7 @@ const App: React.FC = () => {
       setLoadingAllHistory(true);
       setErrorAllHistory(null);
       setAllPresenceHistory(null);
-      const allPresenceHistoryUrl = selectedDate 
+      const allPresenceHistoryUrl = selectedDate
         ? `${serverUrl}/api/presence_history?date=${selectedDate}`
         : `${serverUrl}/api/presence_history`;
 
@@ -197,21 +206,17 @@ const App: React.FC = () => {
   }, [serverUrl, userId, selectedDate]); // userId を依存配列に追加
 
   // サーバー選択の変更ハンドラー
-  const handleServerChange = (
-    event: React.ChangeEvent<{ value: unknown }>
-  ) => {
-    const selectedUrl = event.target.value as string;
+  const handleServerChange = (event: SelectChangeEvent<string>) => {
+    const selectedUrl = event.target.value;
     setServerUrl(selectedUrl);
     if (isDevelopment) {
-      localStorage.setItem('serverUrl', selectedUrl); 
+      localStorage.setItem('serverUrl', selectedUrl);
     }
   };
 
   // ユーザーID選択の変更ハンドラー
-  const handleUserChange = (
-    event: React.ChangeEvent<{ value: unknown }>
-  ) => {
-    const selectedUserId = event.target.value as number;
+  const handleUserChange = (event: SelectChangeEvent<string>) => {
+    const selectedUserId = Number(event.target.value);
     setUserId(selectedUserId);
   };
 
@@ -249,33 +254,17 @@ const App: React.FC = () => {
           <Select
             labelId="user-select-label"
             id="user-select"
-            value={userId}
+            value={userId.toString()} // 数値を文字列に変換
             onChange={handleUserChange}
             label="ユーザーID"
           >
             {userOptions.map((user) => (
-              <MenuItem key={user.value} value={user.value}>
+              <MenuItem key={user.value} value={user.value.toString()}>
                 {user.label}
               </MenuItem>
             ))}
           </Select>
         </FormControl>
-        {/* または、ユーザーIDを直接入力する場合は以下を使用 */}
-        {/* 
-        <TextField
-          id="user-id-input"
-          label="ユーザーID"
-          type="number"
-          value={userId}
-          onChange={(e) => setUserId(Number(e.target.value))}
-          InputLabelProps={{
-            shrink: true,
-          }}
-          variant="outlined"
-          size="small"
-          sx={{ width: 150, mr: 2, mt: { xs: 2, sm: 0 } }}
-        />
-        */}
         {/* 日付選択フィールド */}
         <TextField
           id="date"
