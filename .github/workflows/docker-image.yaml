@@ -34,5 +34,5 @@ jobs:
           file: ./web/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/my-app:latest
-            ghcr.io/${{ github.repository_owner }}/my-app:${{ github.sha }}
+            ghcr.io/hihumikan/elpis-web:latest
+            ghcr.io/hihumikan/elpis-web:${{ github.sha }}
