@@ -118,7 +118,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U myuser -d echodb" ]
-      interval: 15s
+      interval: 20s
       retries: 10
 
   vite-app:
