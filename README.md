@@ -1,12 +1,10 @@
-# elpis_manager
-
-> **「elpis（エルピス）」**は、ギリシャ神話において希望や期待を象徴する女神です。パンドラの箱の神話では、あらゆる災厄が解き放たれた後、最後に箱の中に残ったのが「エルピス（希望）」でした。この神話は、逆境の中でも希望を持つことの重要性を伝えています。
+**「elpis（エルピス）」**は、ギリシャ神話において希望や期待を象徴する女神です。パンドラの箱の神話では、あらゆる災厄が解き放たれた後、最後に箱の中に残ったのが「エルピス（希望）」でした。この神話は、逆境の中でも希望を持つことの重要性を伝えています。
 
 企業では、プロジェクト名にギリシャ神話から名前を付けることがあります。本プロジェクトでもその慣例に従い、正式名称ではありませんが、屋内位置推定における「希望」を象徴するものとして、暫定的に「elpis」と名付けています。
 
 ## インストールの前に
 
-elpisのプロジェクトの全体像や技術的な背景を理解するためには、以下のドキュメントを事前に確認しておくのをおすすめします。
+elpisプロジェクトの全体像や技術的な背景を理解するためには、以下のドキュメントを事前に確認しておくことをおすすめします。
 
 - [研究概要](https://kjlb.esa.io/posts/5571)
 - [デプロイサーバ](https://kjlb.esa.io/posts/6399)
@@ -17,11 +15,11 @@ elpisのプロジェクトの全体像や技術的な背景を理解するため
 
 ## 必要条件
 
-- Go 1.22以上
-- Python 3.10以上
+- **Go** 1.22以上
+- **Python** 3.10以上
   - [uv](https://zenn.dev/turing_motors/articles/594fbef42a36ee)の導入が必要
-- Node.js 22以上
-- Docker / Docker Compose
+- **Node.js** 22以上
+- **Docker** / **Docker Compose**
 
 ## インストール
 
@@ -36,7 +34,7 @@ elpisのプロジェクトの全体像や技術的な背景を理解するため
 
     ```sh
     cd ./manager && go mod download
-    cd ./echo && go mod download
+    cd ../echo && go mod download
     ```
 
 ## 使い方
@@ -80,7 +78,7 @@ make down
     別のターミナルで、プロキシサービスをローカルで起動します。
 
     ```sh
-    make proxy-local
+    make run-proxy
     ```
 
 3. **マネージャーサービスの起動**
@@ -88,18 +86,26 @@ make down
     別のターミナルで、マネージャーサービスをローカルで起動します。
 
     ```sh
-    make manager-local
+    make run-manager
     ```
 
-4. **推定サービスの起動**
+4. **推定モデルサービスの起動**
 
-    別のターミナルで、推定サービス（Estimation API）をローカルで起動します。
+    別のターミナルで、推定モデルサービスをローカルで起動します。
 
     ```sh
-    make est-api-local
+    make run-est-model
     ```
 
-5. **サービスの停止**
+5. **推定APIサービスの起動**
+
+    別のターミナルで、推定APIサービスをローカルで起動します。
+
+    ```sh
+    make run-est-api
+    ```
+
+6. **サービスの停止**
 
     関連するボリュームを削除します。
 
@@ -109,9 +115,7 @@ make down
 
 ### OpenAPIの参照方法
 
-本プロジェクトには、API仕様を確認・テストするためのSwagger UI、Swagger Editor、およびSwagger APIサービスが含まれています。
-
-現在はmanagerのAPI状況を確認できます。
+本プロジェクトには、API仕様を確認・テストするためのSwagger UI、Swagger Editor、およびSwagger APIサービスが含まれています。現在はManagerのAPI状況を確認できます。
 
 #### Swagger UIの使用
 
@@ -169,14 +173,14 @@ Swagger APIを使用して、モックサーバーを立ち上げてAPIの挙動
 
 #### FastAPIのOpenAPIドキュメントの参照
 
-FastAPIを使用した推定サービス（Estimation API）は、自動的にOpenAPIドキュメントを生成し、Swagger UIを提供しています。これによって、APIのエンドポイントやリクエスト・レスポンスの詳細を確認できます。
+FastAPIを使用した推定APIサービスは、自動的にOpenAPIドキュメントを生成し、Swagger UIを提供しています。これにより、APIのエンドポイントやリクエスト・レスポンスの詳細を確認できます。
 
-1. **Estimation APIサービスの起動**
+1. **推定APIサービスの起動**
 
     Docker Composeでサービスを起動している場合、`make up`コマンドで自動的に起動します。ローカルで起動している場合は、以下のコマンドを使用します。
 
     ```sh
-    make est-api-local
+    make run-est-api
     ```
 
 2. **Swagger UIにアクセス**
@@ -187,7 +191,7 @@ FastAPIを使用した推定サービス（Estimation API）は、自動的にOp
     http://localhost:8101/docs
     ```
 
-    これにより、Estimation APIのSwagger UIが表示されます。
+    これにより、推定APIのSwagger UIが表示されます。
 
 3. **Redocによるドキュメントの閲覧**
 
@@ -211,36 +215,30 @@ FastAPIを使用した推定サービス（Estimation API）は、自動的にOp
 
 プロジェクトには、各サービスのエンドツーエンドテスト用のシェルスクリプトが用意されています。以下のMakeコマンドを使用してテストを実行できます。
 
-- **すべてのエンドツーエンドテストを実行**
-
-    ```sh
-    make e2e-test
-    ```
-
 - **個別のテストを実行**
-  
+
     - **推定APIのテスト**
 
         ```sh
-        make est-api-test
+        make run-test-est-api
         ```
 
     - **マネージャーサービスのテスト**
 
         ```sh
-        make manager-test
+        make run-test-manager
         ```
 
     - **プロキシサービスのテスト**
 
         ```sh
-        make proxy-test
+        make run-test-proxy
         ```
 
     - **ウェブサービスのテスト**
 
         ```sh
-        make web-test
+        make run-test-web
         ```
 
 ### その他のコマンド
@@ -255,31 +253,51 @@ FastAPIを使用した推定サービス（Estimation API）は、自動的にOp
 
 - **特定のサービスを再起動**
 
-    マネージャーサービスのみを再起動:
+    - マネージャーサービスのみを再起動:
+
+        ```sh
+        make restart-manager
+        ```
+
+    - プロキシサービスのみを再起動:
+
+        ```sh
+        make restart-proxy
+        ```
+
+    - 推定APIサービスのみを再起動:
+
+        ```sh
+        make restart-est-api
+        ```
+
+- **Dockerイメージのビルド**
 
     ```sh
-    make restart-manager
+    make build
     ```
 
-    プロキシサービスのみを再起動:
+- **クリーンアップ**
+
+    すべてのサービスを停止し、コンテナ、ネットワーク、ボリュームを削除します。
 
     ```sh
-    make restart-proxy
+    make clean
     ```
 
-## Python (uv)
+### Python (uv)
 
-推定サーバにはPythonを使った機械学習モデルを採用しています。下記リンクから`uv`を導入してください。
+推定サーバにはPythonを使った機械学習モデルを採用しています。以下のリンクから`uv`を導入してください。
 
 [uvの導入ガイド](https://zenn.dev/turing_motors/articles/594fbef42a36ee)
 
-- **推定サービスのローカル起動**
+- **推定APIサービスのローカル起動**
 
     ```sh
-    make est-api-local
+    make run-est-api
     ```
 
-## ヘルプの表示
+### ヘルプの表示
 
 利用可能なすべてのMakeコマンドを確認するには:
 
@@ -287,6 +305,6 @@ FastAPIを使用した推定サービス（Estimation API）は、自動的にOp
 make help
 ```
 
-## ライセンス
+### ライセンス
 
-現状のElpisプロジェクトは、GPLv3ライセンスの下で公開されています。ライセンスの詳細については、[LICENSE](LICENSE)ファイルを参照してください。
+現状のelpisプロジェクトは、GPLv3ライセンスの下で公開されています。ライセンスの詳細については、[LICENSE](LICENSE)ファイルを参照してください。
