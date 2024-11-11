@@ -457,7 +457,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	userIDStr := r.URL.Query().Get("user_id")
-	dateStr := r.URL.Query().Get("date") // 新たに date クエリパラメータを追加
+	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
 
@@ -467,17 +467,15 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			http.Error(w, "無効な date パラメータです。フォーマットは YYYY-MM-DD です。", http.StatusBadRequest)
 			return
 		}
-		// 日付の開始時間を設定（その日の00:00:00）
 		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
 	} else {
-		since = time.Now().AddDate(0, -1, 0) // デフォルトで過去1か月
+		since = time.Now().AddDate(0, -1, 0)
 	}
 
 	var sessions []PresenceSession
 	var response PresenceHistoryResponse
 
 	if userIDStr != "" {
-		// ユーザーごとの在室履歴を取得
 		userID, err := strconv.Atoi(userIDStr)
 		if err != nil {
 			http.Error(w, "無効な user_id パラメータです", http.StatusBadRequest)
@@ -509,13 +507,12 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			return userHistory[i].Date < userHistory[j].Date
 		})
 
-		userIDInt, _ := strconv.Atoi(userIDStr) // エラーチェック済みのため無視
+		userIDInt, _ := strconv.Atoi(userIDStr)
 		response.UserHistory = &UserPresenceResponse{
 			UserID:  userIDInt,
 			History: userHistory,
 		}
 	} else {
-		// 全ユーザーの日毎の在室履歴を取得
 		sessions, err = fetchAllSessions(db, since)
 		if err != nil {
 			http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
@@ -523,7 +520,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 			return
 		}
 
-		// 日ごとにユーザーをグループ化
 		dayUserMap := make(map[string]map[int][]PresenceSession)
 		for _, session := range sessions {
 			date := session.StartTime.Format("2006-01-02")
