@@ -29,7 +29,7 @@ TEST_NAMES=(
 THRESHOLD=-65
 
 # Basic認証のユーザー名とパスワード（パスワードは不要ですが、curlの仕様上指定が必要です）
-BASIC_AUTH_USER="user1"
+BASIC_AUTH_USER="hihumikan"
 BASIC_AUTH_PASS="password"  # 任意の値
 
 # 部屋ごとのUUIDを明確に定義
