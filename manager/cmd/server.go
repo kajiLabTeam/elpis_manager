@@ -229,10 +229,13 @@ func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquir
 
 func getUserID(r *http.Request) string {
 	username, _, ok := r.BasicAuth()
-	if !ok || username == "" {
-		username = "anonymous"
+	if ok && username != "" {
+		log.Printf("authentication passed: %s", username)
+		return username
+	} else {
+		log.Println("authentication failed")
+		return "anonymous"
 	}
-	return username
 }
 
 func getUserIDFromDB(db *sql.DB, username string) (int, error) {
@@ -455,7 +458,6 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 }
 
 func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	// user_id クエリパラメータの処理を削除
 	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
@@ -812,12 +814,8 @@ func main() {
 
 	go cleanUpOldSessions(db, 10*time.Minute)
 
-	// カスタムハンドラを作成
 	http.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
-		// URLパスを分解
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		// エンドポイントの形式を確認
-		// 必要な形式: /api/users/{user_id}/presence_history
 		if len(parts) == 4 && parts[0] == "api" && parts[1] == "users" && parts[3] == "presence_history" && r.Method == http.MethodGet {
 			userIDStr := parts[2]
 			userID, err := strconv.Atoi(userIDStr)
@@ -828,7 +826,6 @@ func main() {
 			handleUserPresenceHistory(w, r, db, userID)
 			return
 		}
-		// 一致しない場合は404
 		http.NotFound(w, r)
 	})
 
@@ -882,9 +879,7 @@ func main() {
 	}
 }
 
-// 新しいハンドラ関数: 特定ユーザーの在室履歴を取得
 func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB, userID int) {
-	// 日付のクエリパラメータを取得
 	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
