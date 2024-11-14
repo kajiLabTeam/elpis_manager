@@ -9,7 +9,7 @@ elpisプロジェクトの全体像や技術的な背景を理解するために
 - [研究概要](https://kjlb.esa.io/posts/5571)
 - [デプロイサーバ](https://kjlb.esa.io/posts/6399)
 - [DB設計](https://kjlb.esa.io/posts/5762)
-- [API定義](https://kjlb.esa.io/posts/5764)
+- [API定義](https://kjlb.esa.io/posts/6697)
 - [データフロー](https://kjlb.esa.io/posts/5751)
 - [関連研究](https://kjlb.esa.io/posts/5810)
 
