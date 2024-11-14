@@ -97,13 +97,25 @@ INSERT INTO
 VALUES
     (
         'elpis-001',
-        '517557dc-f2d6-42f1-9695-f9883f856a70',
+        'd546df97-4757-47ef-be09-3e2dcbdd0c77',
+        'DC:0D:30:1E:33:91',
+        2
+    ),
+    (
+        'elpis-001',
+        'fda50693-a4e2-4fb1-afcf-c6eb07647825',
         'DC:0D:30:1E:33:91',
         2
     ),
     (
         'elpis-002',
         '4e24ac47-b7e6-44f5-957f-1cdcefa2acab',
+        'DC:0D:30:1E:33:84',
+        1
+    ),
+    (
+        'elpis-002',
+        'fda50693-a4e2-4fb1-afcf-c6eb07647825',
         'DC:0D:30:1E:33:84',
         1
     ),
@@ -118,12 +130,11 @@ VALUES
 INSERT INTO
     wifi_access_points (ssid, bssid, room_id)
 VALUES
-    ('KJLB-WorkRoom-ac', '66:77:88:99:AA:BB', 1),
-    ('KJLB-WorkRoom-g', '66:77:88:99:AA:BC', 1),
-    ('KJLB-StuRoom-108ac', '66:77:88:99:AA:BD', 2),
-    ('KJLB-StuRoom-108g', '66:77:88:99:AA:BE', 2),
-    ('KJLB-104a', '66:77:88:99:AA:BF', 3),
-    ('KJLB-104g', '66:77:88:99:AA:BG', 3);
+    ('KJLB-WorkRoom-g', 'C0:25:A2:A7:2E:1A', 1),
+    ('KJLB-StuRoom-108ac', 'C0:25:A2:A9:b1:4f', 2),
+    ('KJLB-StuRoom-108g', 'c0:25:a2:a7:2e:2a', 2),
+    ('KJLB-104a', '60:84:bd:de:7c:67', 3),
+    ('KJLB-104g', '60:84:bd:de:7c:60', 3);
 
 -- ロールのデータを挿入
 INSERT INTO
