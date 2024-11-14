@@ -387,10 +387,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	currentDate := time.Now().Format("2006-01-02")
 
 	baseDir := "./uploads"
-	userDir := filepath.Join(baseDir, username)
-	dateDir := filepath.Join(userDir, currentDate)
+	dateDir := filepath.Join(baseDir, currentDate)
+	userDir := filepath.Join(dateDir, username)
 
-	if err := os.MkdirAll(dateDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(userDir, os.ModePerm); err != nil {
 		http.Error(w, "ディレクトリの作成に失敗しました", http.StatusInternalServerError)
 		return
 	}
@@ -400,8 +400,8 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", unixTime)
 	bleFileName := fmt.Sprintf("ble_data_%d.csv", unixTime)
 
-	wifiFilePath := filepath.Join(dateDir, wifiFileName)
-	bleFilePath := filepath.Join(dateDir, bleFileName)
+	wifiFilePath := filepath.Join(userDir, wifiFileName)
+	bleFilePath := filepath.Join(userDir, bleFileName)
 
 	if err := saveUploadedFile(wifiFile, wifiFilePath); err != nil {
 		http.Error(w, "WiFiデータの保存に失敗しました", http.StatusInternalServerError)
