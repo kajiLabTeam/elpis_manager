@@ -980,6 +980,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		excludedPaths := map[string]bool{
 			"/api/signals/server": true,
+			"/api/signals/submit": true,
 		}
 
 		excludeBody := excludedPaths[r.URL.Path]
