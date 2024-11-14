@@ -932,7 +932,6 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 		}
 	}
 }
-
 func main() {
 	configPath := "config.toml"
 
@@ -983,38 +982,51 @@ func main() {
 	log.Println("データベースに正常に接続しました。")
 
 	if !skipRegistration {
-		registerURL := fmt.Sprintf("%s/api/register", proxyURL)
+		go func() {
+			registerURL := fmt.Sprintf("%s/api/register", proxyURL)
+			serverPortInt, err := strconv.Atoi(*port)
+			if err != nil {
+				log.Fatalf("ポート番号の変換に失敗しました: %v\n", err)
+			}
 
-		serverPortInt, err := strconv.Atoi(*port)
-		if err != nil {
-			log.Fatalf("ポート番号の変換に失敗しました: %v\n", err)
-		}
+			registerData := RegisterRequest{
+				SystemURI: config.Registration.SystemURI,
+				Port:      serverPortInt,
+			}
 
-		registerData := RegisterRequest{
-			SystemURI: config.Registration.SystemURI,
-			Port:      serverPortInt,
-		}
+			for {
+				registerBody, err := json.Marshal(registerData)
+				if err != nil {
+					log.Printf("登録リクエストのエンコードに失敗しました: %v\n", err)
+					log.Println("登録を再試行します...")
+					time.Sleep(5 * time.Second)
+					continue
+				}
 
-		registerBody, err := json.Marshal(registerData)
-		if err != nil {
-			log.Fatalf("登録リクエストのエンコードエラー: %v\n", err)
-		}
+				resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
+				if err != nil {
+					log.Printf("サーバの登録エラー: %v\n", err)
+					log.Println("登録を再試行します...")
+					time.Sleep(5 * time.Second)
+					continue
+				}
 
-		resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
-		if err != nil {
-			log.Fatalf("サーバの登録エラー: %v\n", err)
-		}
-		defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("サーバの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
+					resp.Body.Close()
+					log.Println("登録を再試行します...")
+					time.Sleep(5 * time.Second)
+					continue
+				}
 
-		if resp.StatusCode != http.StatusOK {
-			log.Fatalf("サーバの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
-		}
-
-		log.Println("サーバの登録が完了しました。")
+				resp.Body.Close()
+				log.Println("サーバの登録が完了しました。")
+				break
+			}
+		}()
 	}
 
 	go cleanUpOldSessions(db, 10*time.Minute)
-
 	http.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		if len(parts) == 4 && parts[0] == "api" && parts[1] == "users" && parts[3] == "presence_history" && r.Method == http.MethodGet {
