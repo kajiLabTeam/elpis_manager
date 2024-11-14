@@ -215,10 +215,10 @@ func parseWifiCSV(filePath string) ([]WiFiSignal, error) {
 func getRoomIDByBeacon(db *sql.DB, beacon BeaconSignal) (int, error) {
 	var roomID int
 	query := `
-		SELECT room_id FROM beacons 
-		WHERE UPPER(service_uuid) = UPPER($1)
-		LIMIT 1
-	`
+        SELECT room_id FROM beacons 
+        WHERE UPPER(service_uuid) = UPPER($1)
+        LIMIT 1
+    `
 
 	err := db.QueryRow(query, beacon.UUID).Scan(&roomID)
 	if err != nil {
@@ -234,10 +234,10 @@ func getRoomIDByBeacon(db *sql.DB, beacon BeaconSignal) (int, error) {
 func getRoomIDByWifi(db *sql.DB, wifi WiFiSignal) (int, error) {
 	var roomID int
 	query := `
-		SELECT room_id FROM wifi_access_points 
-		WHERE LOWER(bssid) = LOWER($1)
-		LIMIT 1
-	`
+        SELECT room_id FROM wifi_access_points 
+        WHERE LOWER(bssid) = LOWER($1)
+        LIMIT 1
+    `
 
 	err := db.QueryRow(query, wifi.BSSID).Scan(&roomID)
 	if err != nil {
@@ -980,8 +980,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		userAgent := r.Header.Get("User-Agent")
 
 		excludedPaths := map[string]bool{
-			"/api/signals/server": true,
-			"/api/signals/submit": true,
+			"/api/signals/server":      true,
+			"/api/signals/submit":      true,
+			"/api/fingerprint/collect": true,
 		}
 
 		excludeBody := excludedPaths[r.URL.Path]
@@ -1022,6 +1023,84 @@ func sanitizeString(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.Join(strings.Fields(s), " ")
 	return s
+}
+
+func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "メソッドが許可されていません。POSTメソッドを使用してください。", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
+		return
+	}
+
+	sampleType := r.FormValue("sample_type")
+	roomID := r.FormValue("room_id")
+
+	if sampleType != "positive" && sampleType != "negative" {
+		http.Error(w, "無効な sample_type。'positive' または 'negative' を指定してください。", http.StatusBadRequest)
+		return
+	}
+
+	if roomID == "" {
+		http.Error(w, "room_id を指定してください。", http.StatusBadRequest)
+		return
+	}
+
+	wifiFile, _, err := r.FormFile("wifi_data")
+	if err != nil {
+		http.Error(w, "wifi_data ファイルの取得に失敗しました。", http.StatusBadRequest)
+		return
+	}
+	defer wifiFile.Close()
+
+	bleFile, _, err := r.FormFile("ble_data")
+	if err != nil {
+		http.Error(w, "ble_data ファイルの取得に失敗しました。", http.StatusBadRequest)
+		return
+	}
+	defer bleFile.Close()
+
+	baseDir := "./estimation"
+	var saveDir string
+	if sampleType == "positive" {
+		saveDir = filepath.Join(baseDir, "positive_samples")
+	} else {
+		saveDir = filepath.Join(baseDir, "negative_samples")
+	}
+
+	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
+		http.Error(w, "保存先ディレクトリの作成に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+
+	sanitizedRoomID := filepath.Base(roomID)
+
+	timestamp := time.Now().Unix()
+	wifiFileName := fmt.Sprintf("wifi_data_%s_%d.csv", sanitizedRoomID, timestamp)
+	bleFileName := fmt.Sprintf("ble_data_%s_%d.csv", sanitizedRoomID, timestamp)
+
+	wifiFilePath := filepath.Join(saveDir, wifiFileName)
+	bleFilePath := filepath.Join(saveDir, bleFileName)
+
+	if err := saveUploadedFile(wifiFile, wifiFilePath); err != nil {
+		http.Error(w, "wifi_data の保存に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+
+	if err := saveUploadedFile(bleFile, bleFilePath); err != nil {
+		http.Error(w, "ble_data の保存に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+
+	response := UploadResponse{Message: "Fingerprint data received successfully"}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "レスポンスの作成に失敗しました。", http.StatusInternalServerError)
+		return
+	}
 }
 
 func main() {
@@ -1168,6 +1247,8 @@ func main() {
 		}
 		handleSignalsServer(w, r, db, estimationURL, inquiryURL)
 	})
+
+	mux.HandleFunc("/api/fingerprint/collect", handleFingerprintCollect)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleHealthCheck(w, r, db)
