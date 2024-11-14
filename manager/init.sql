@@ -18,7 +18,6 @@ CREATE TABLE
         beacon_name VARCHAR(100) NOT NULL,
         service_uuid CHAR(36),
         mac_address VARCHAR(17),
-        rssi INT,
         room_id INT,
         FOREIGN KEY (room_id) REFERENCES rooms (room_id)
     );
@@ -28,7 +27,6 @@ CREATE TABLE
         wifi_id SERIAL PRIMARY KEY,
         ssid VARCHAR(100) NOT NULL,
         bssid VARCHAR(17) NOT NULL,
-        rssi INT,
         room_id INT,
         FOREIGN KEY (room_id) REFERENCES rooms (room_id)
     );
@@ -49,7 +47,10 @@ CREATE TABLE
     );
 
 CREATE TABLE
-    query_server (id SERIAL PRIMARY KEY, url VARCHAR(255) NOT NULL);
+    query_server (
+        id SERIAL PRIMARY KEY,
+        url VARCHAR(255) NOT NULL
+    );
 
 -- ユーザーの在室セッションを保存するテーブル
 CREATE TABLE
@@ -85,13 +86,12 @@ VALUES
     ('Undergraduate Students Room', 514),
     ('Professors Office', 515);
 
--- ビーコンデバイスのデータを挿入、RSSI値も指定
+-- ビーコンデバイスのデータを挿入
 INSERT INTO
     beacons (
         beacon_name,
         service_uuid,
         mac_address,
-        rssi,
         room_id
     )
 VALUES
@@ -99,34 +99,31 @@ VALUES
         'elpis-001',
         '517557dc-f2d6-42f1-9695-f9883f856a70',
         'DC:0D:30:1E:33:91',
-        -80,
         2
     ),
     (
         'elpis-002',
         '4e24ac47-b7e6-44f5-957f-1cdcefa2acab',
         'DC:0D:30:1E:33:84',
-        -75,
         1
     ),
     (
         'elpis-003',
         '722eb21f-8f6a-4ba9-a12f-05c0f970a177',
         'DC:0D:30:1E:33:3E',
-        -75,
         3
     );
 
--- WiFiアクセスポイントのデータを挿入、RSSI値も指定
+-- WiFiアクセスポイントのデータを挿入
 INSERT INTO
-    wifi_access_points (ssid, bssid, rssi, room_id)
+    wifi_access_points (ssid, bssid, room_id)
 VALUES
-    ('KJLB-WorkRoom-ac', '66:77:88:99:AA:BB', -65, 1),
-    ('KJLB-WorkRoom-g', '66:77:88:99:AA:BC', -65, 1),
-    ('KJLB-StuRoom-108ac', '66:77:88:99:AA:BD', -75, 2),
-    ('KJLB-StuRoom-108g', '66:77:88:99:AA:BE', -75, 2),
-    ('KJLB-104a', '66:77:88:99:AA:BF', -75, 3),
-    ('KJLB-104g', '66:77:88:99:AA:BG', -75, 3);
+    ('KJLB-WorkRoom-ac', '66:77:88:99:AA:BB', 1),
+    ('KJLB-WorkRoom-g', '66:77:88:99:AA:BC', 1),
+    ('KJLB-StuRoom-108ac', '66:77:88:99:AA:BD', 2),
+    ('KJLB-StuRoom-108g', '66:77:88:99:AA:BE', 2),
+    ('KJLB-104a', '66:77:88:99:AA:BF', 3),
+    ('KJLB-104g', '66:77:88:99:AA:BG', 3);
 
 -- ロールのデータを挿入
 INSERT INTO
