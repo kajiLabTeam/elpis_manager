@@ -10,8 +10,8 @@ SAMPLE_TYPE="positive"
 ROOM_ID="1"
 
 # アップロードするファイルのパスを指定
-BLE_DATA_FILE="./ble_data_111.csv"
-WIFI_DATA_FILE="./wifi_data_111.csv"
+BLE_DATA_FILE="./fingerprint/ble_data_111.csv"
+WIFI_DATA_FILE="./fingerprint/wifi_data_111.csv"
 
 # ファイルが存在するか確認
 if [ ! -f "$WIFI_DATA_FILE" ]; then
