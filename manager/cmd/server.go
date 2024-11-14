@@ -19,10 +19,14 @@ import (
 	"strings"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/BurntSushi/toml"
 	_ "github.com/lib/pq"
 	"github.com/rs/cors"
 )
+
+var requestID uint64
 
 type Config struct {
 	Mode         string
@@ -962,6 +966,9 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		id := atomic.AddUint64(&requestID, 1)
+
 		unixTime := time.Now().Unix()
 
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -971,35 +978,29 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		userAgent := r.Header.Get("User-Agent")
 
+		excludedPaths := map[string]bool{
+			"/api/signals/server": true,
+		}
+
+		excludeBody := excludedPaths[r.URL.Path]
+
 		var requestBody string
-
-		excludedPaths := []string{
-			"/api/signals/server",
-		}
-
-		excludeBody := false
-		for _, path := range excludedPaths {
-			if strings.HasPrefix(r.URL.Path, path) {
-				excludeBody = true
-				break
-			}
-		}
 
 		if r.Body != nil && !excludeBody {
 			const maxBodySize = 10 * 1024 * 1024
 			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
 			if err != nil {
-				log.Printf("Error reading request body: %v", err)
+				log.Printf("RequestID %d: Error reading request body: %v", id, err)
 			} else {
 				requestBody = string(body)
 				r.Body = io.NopCloser(bytes.NewBuffer(body))
 			}
 		}
 
-		logLine := fmt.Sprintf("IP: %s | User-Agent: %s | Time: %d | Method: %s | URI: %s",
-			ip, userAgent, unixTime, r.Method, r.RequestURI)
+		logLine := fmt.Sprintf("RequestID: %d | IP: %s | User-Agent: %s | Time: %d | Method: %s | URI: %s",
+			id, ip, userAgent, unixTime, r.Method, r.RequestURI)
 
-		if requestBody != "" {
+		if !excludeBody && requestBody != "" {
 			logLine += fmt.Sprintf(" | Content: %s", sanitizeString(requestBody))
 		}
 
