@@ -1074,7 +1074,6 @@ func main() {
 
 	if !skipRegistration {
 		go func() {
-			registerURL := fmt.Sprintf("%s/api/register", proxyURL)
 			serverPortInt, err := strconv.Atoi(*port)
 			if err != nil {
 				log.Fatalf("ポート番号の変換に失敗しました: %v\n", err)
@@ -1094,7 +1093,7 @@ func main() {
 					continue
 				}
 
-				resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
+				resp, err := http.Post(proxyURL, "application/json", bytes.NewBuffer(registerBody))
 				if err != nil {
 					log.Printf("サーバの登録エラー: %v\n", err)
 					log.Println("登録を再試行します...")
