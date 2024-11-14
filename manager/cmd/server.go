@@ -395,9 +395,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		return
 	}
 
-	timeStamp := time.Now().Format("150405")
-	wifiFileName := fmt.Sprintf("wifi_data_%s.csv", timeStamp)
-	bleFileName := fmt.Sprintf("ble_data_%s.csv", timeStamp)
+	currentTime := time.Now()
+	unixTime := currentTime.Unix()
+	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", unixTime)
+	bleFileName := fmt.Sprintf("ble_data_%d.csv", unixTime)
 
 	wifiFilePath := filepath.Join(dateDir, wifiFileName)
 	bleFilePath := filepath.Join(dateDir, bleFileName)
@@ -418,7 +419,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	}
 	log.Printf("推定サーバからの確信度: %.2f%%", estimationConfidence)
 
-	currentTime := time.Now()
+	currentTime = time.Now()
 
 	if estimationConfidence >= 20.0 && estimationConfidence <= 70.0 {
 		inquiryConfidence, err := forwardFilesToInquiryServer(wifiFilePath, bleFilePath, inquiryURL, estimationConfidence)
