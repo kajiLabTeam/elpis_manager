@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -958,6 +959,68 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 		}
 	}
 }
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		unixTime := time.Now().Unix()
+
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+
+		userAgent := r.Header.Get("User-Agent")
+
+		var requestBody string
+
+		excludedPaths := []string{
+			"/api/signals/server",
+		}
+
+		excludeBody := false
+		for _, path := range excludedPaths {
+			if strings.HasPrefix(r.URL.Path, path) {
+				excludeBody = true
+				break
+			}
+		}
+
+		if r.Body != nil && !excludeBody {
+			const maxBodySize = 10 * 1024 * 1024
+			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
+			if err != nil {
+				log.Printf("Error reading request body: %v", err)
+			} else {
+				requestBody = string(body)
+				r.Body = io.NopCloser(bytes.NewBuffer(body))
+			}
+		}
+
+		logLine := fmt.Sprintf("IP: %s | User-Agent: %s | Time: %d | Method: %s | URI: %s",
+			ip, userAgent, unixTime, r.Method, r.RequestURI)
+
+		if requestBody != "" {
+			logLine += fmt.Sprintf(" | Content: %s", sanitizeString(requestBody))
+		}
+
+		log.Println(logLine)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func sanitizeString(s string) string {
+	const maxLength = 1000
+	if len(s) > maxLength {
+		return s[:maxLength] + "...(truncated)"
+	}
+
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
 func main() {
 	configPath := "config.toml"
 
@@ -1053,7 +1116,10 @@ func main() {
 	}
 
 	go cleanUpOldSessions(db, 10*time.Minute)
-	http.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		if len(parts) == 4 && parts[0] == "api" && parts[1] == "users" && parts[3] == "presence_history" && r.Method == http.MethodGet {
 			userIDStr := parts[2]
@@ -1068,7 +1134,7 @@ func main() {
 		http.NotFound(w, r)
 	})
 
-	http.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/presence_history", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
 			return
@@ -1076,7 +1142,7 @@ func main() {
 		handlePresenceHistory(w, r, db)
 	})
 
-	http.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
 			return
@@ -1084,7 +1150,7 @@ func main() {
 		handleCurrentOccupants(w, r, db)
 	})
 
-	http.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
 			return
@@ -1092,7 +1158,7 @@ func main() {
 		handleSignalsSubmit(w, r, db, estimationURL, inquiryURL)
 	})
 
-	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
 			return
@@ -1100,9 +1166,11 @@ func main() {
 		handleSignalsServer(w, r, db, estimationURL, inquiryURL)
 	})
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleHealthCheck(w, r, db)
 	})
+
+	loggedMux := loggingMiddleware(mux)
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "https://elpis.kajilab.dev"},
@@ -1111,10 +1179,10 @@ func main() {
 		AllowCredentials: true,
 	})
 
-	handler := corsHandler.Handler(http.DefaultServeMux)
+	finalHandler := corsHandler.Handler(loggedMux)
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
-	if err := http.ListenAndServe(":"+*port, handler); err != nil {
+	if err := http.ListenAndServe(":"+*port, finalHandler); err != nil {
 		log.Fatalf("サーバを開始できませんでした: %v\n", err)
 	}
 }
