@@ -128,13 +128,164 @@ type InquiryResponse struct {
 	ServerConfidence float64 `json:"server_confidence"`
 }
 
-func parseCSV(file multipart.File) ([][]string, error) {
+type BeaconSignal struct {
+	UUID  string
+	BSSID string
+	RSSI  float64
+}
+
+type WiFiSignal struct {
+	SSID  string
+	BSSID string
+	RSSI  float64
+}
+
+func parseBLECSV(filePath string) ([]BeaconSignal, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("BLE CSVファイルのオープンに失敗しました: %v", err)
+	}
+	defer file.Close()
+
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("BLE CSVの読み取りに失敗しました: %v", err)
 	}
-	return records, nil
+
+	var signals []BeaconSignal
+	for _, record := range records {
+		if len(record) < 3 {
+			continue
+		}
+		rssi, err := strconv.ParseFloat(strings.TrimSpace(record[2]), 64)
+		if err != nil {
+			continue
+		}
+		signal := BeaconSignal{
+			UUID:  strings.TrimSpace(record[1]),
+			BSSID: "",
+			RSSI:  rssi,
+		}
+		signals = append(signals, signal)
+	}
+
+	return signals, nil
+}
+
+func parseWifiCSV(filePath string) ([]WiFiSignal, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("WiFi CSVファイルのオープンに失敗しました: %v", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("WiFi CSVの読み取りに失敗しました: %v", err)
+	}
+
+	var signals []WiFiSignal
+	for _, record := range records {
+		if len(record) < 3 {
+			continue
+		}
+		rssi, err := strconv.ParseFloat(strings.TrimSpace(record[2]), 64)
+		if err != nil {
+			continue
+		}
+		signal := WiFiSignal{
+			SSID:  strings.TrimSpace(record[0]),
+			BSSID: strings.TrimSpace(record[1]),
+			RSSI:  rssi,
+		}
+		signals = append(signals, signal)
+	}
+
+	return signals, nil
+}
+
+func getRoomIDByBeacon(db *sql.DB, beacon BeaconSignal) (int, error) {
+	var roomID int
+	query := `
+		SELECT room_id FROM beacons 
+		WHERE UPPER(service_uuid) = UPPER($1)
+		LIMIT 1
+	`
+
+	err := db.QueryRow(query, beacon.UUID).Scan(&roomID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("ビーコンが見つかりません: UUID=%s", beacon.UUID)
+		}
+		return 0, err
+	}
+	log.Printf("ビーコンUUID=%s（RSSI=%.2f）に対応する部屋ID=%dが見つかりました", beacon.UUID, beacon.RSSI, roomID)
+	return roomID, nil
+}
+
+func getRoomIDByWifi(db *sql.DB, wifi WiFiSignal) (int, error) {
+	var roomID int
+	query := `
+		SELECT room_id FROM wifi_access_points 
+		WHERE LOWER(bssid) = LOWER($1)
+		LIMIT 1
+	`
+
+	err := db.QueryRow(query, wifi.BSSID).Scan(&roomID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("WiFiアクセスポイントが見つかりません: BSSID=%s", wifi.BSSID)
+		}
+		return 0, err
+	}
+	log.Printf("WiFi BSSID=%s（RSSI=%.2f）に対応する部屋ID=%dが見つかりました", wifi.BSSID, wifi.RSSI, roomID)
+	return roomID, nil
+}
+
+func determineRoomID(db *sql.DB, bleFilePath string, wifiFilePath string) (int, error) {
+	bleSignals, err := parseBLECSV(bleFilePath)
+	if err != nil {
+		return 0, err
+	}
+
+	wifiSignals, err := parseWifiCSV(wifiFilePath)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(bleSignals) == 0 && len(wifiSignals) == 0 {
+		return 0, fmt.Errorf("BLEおよびWiFi信号が見つかりません")
+	}
+
+	var bleRoomID int
+	for _, beacon := range bleSignals {
+		roomID, err := getRoomIDByBeacon(db, beacon)
+		if err != nil {
+			continue
+		}
+		bleRoomID = roomID
+		break
+	}
+
+	var wifiRoomID int
+	for _, wifi := range wifiSignals {
+		roomID, err := getRoomIDByWifi(db, wifi)
+		if err != nil {
+			continue
+		}
+		wifiRoomID = roomID
+		break
+	}
+
+	if bleRoomID != 0 {
+		return bleRoomID, nil
+	} else if wifiRoomID != 0 {
+		return wifiRoomID, nil
+	} else {
+		return 0, fmt.Errorf("有効なビーコンおよびWiFiアクセスポイントが見つかりません")
+	}
 }
 
 func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (float64, error) {
@@ -178,7 +329,7 @@ func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (f
 		return 0, fmt.Errorf("推定サーバのレスポンスパースに失敗しました: %v", err)
 	}
 
-	percentageStr := strings.TrimSuffix(predictionResp.PredictedPercentage, "%")
+	percentageStr := strings.TrimSpace(strings.TrimSuffix(predictionResp.PredictedPercentage, "%"))
 	percentage, err := strconv.ParseFloat(percentageStr, 64)
 	if err != nil {
 		return 0, fmt.Errorf("予測パーセンテージの解析に失敗しました: %v", err)
@@ -230,12 +381,9 @@ func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquir
 func getUserID(r *http.Request) string {
 	username, _, ok := r.BasicAuth()
 	if ok && username != "" {
-		log.Printf("authentication passed: %s", username)
 		return username
-	} else {
-		log.Println("authentication failed")
-		return "anonymous"
 	}
+	return "anonymous"
 }
 
 func getUserIDFromDB(db *sql.DB, username string) (int, error) {
@@ -272,7 +420,6 @@ func startUserSession(db *sql.DB, userID int, roomID int, startTime time.Time) e
 	if err != nil {
 		return fmt.Errorf("セッションの開始に失敗しました: %v", err)
 	}
-	log.Printf("ユーザーID %d のセッションを開始しました。RoomID: %d, StartTime: %s", userID, roomID, startTime)
 	return nil
 }
 
@@ -290,12 +437,9 @@ func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 	if err != nil {
 		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
 	}
-	if rowsAffected == 0 {
-		log.Printf("ユーザーID %d の現在のセッションが見つかりませんでした。", userID)
-	} else {
-		log.Printf("ユーザーID %d のセッションを終了しました。EndTime: %s", userID, endTime)
+	if rowsAffected > 0 {
+		log.Printf("ユーザーID %d のセッションを終了しました。終了時刻: %s", userID, endTime)
 	}
-
 	return nil
 }
 
@@ -313,22 +457,18 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 	if err != nil {
 		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
 	}
-	if rowsAffected == 0 {
-		log.Printf("ユーザーID %d のセッションが見つかりませんでした。", userID)
-	} else {
+	if rowsAffected > 0 {
 		log.Printf("ユーザーID %d のlast_seenを更新しました。", userID)
 	}
-
 	return nil
 }
 
-func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, inquiryConfidence float64, lastSeen time.Time) error {
+func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, inquiryConfidence float64, lastSeen time.Time, roomID int) error {
 	if inquiryConfidence > estimationConfidence {
 		err := endUserSession(db, userID, lastSeen)
 		if err != nil {
 			return fmt.Errorf("セッションの終了に失敗しました: %v", err)
 		}
-		log.Printf("ユーザーID %d は在室していないと判定しました。照会サーバ確信度: %.2f%%, 推定サーバ確信度: %.2f%%", userID, inquiryConfidence, estimationConfidence)
 	} else {
 		var existingRoomID int
 		err := db.QueryRow(`
@@ -338,10 +478,11 @@ func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, in
 
 		if err != nil {
 			if err == sql.ErrNoRows {
-				err = startUserSession(db, userID, 1, lastSeen)
+				err = startUserSession(db, userID, roomID, lastSeen)
 				if err != nil {
 					return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
 				}
+				log.Printf("ユーザーID %d の新しいセッションを部屋ID %d で開始しました。", userID, roomID)
 			} else {
 				return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
 			}
@@ -351,7 +492,6 @@ func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, in
 				return fmt.Errorf("last_seenの更新に失敗しました: %v", err)
 			}
 		}
-		log.Printf("ユーザーID %d は在室していると判定しました。推定サーバ確信度: %.2f%%", userID, estimationConfidence)
 	}
 	return nil
 }
@@ -364,14 +504,14 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "WiFiデータファイルの読み込みエラー", http.StatusBadRequest)
+		http.Error(w, "WiFiデータファイルの読み込みに失敗しました", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "BLEデータファイルの読み込みエラー", http.StatusBadRequest)
+		http.Error(w, "BLEデータファイルの読み込みに失敗しました", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
@@ -385,7 +525,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	}
 
 	currentDate := time.Now().Format("2006-01-02")
-
 	baseDir := "./uploads"
 	dateDir := filepath.Join(baseDir, currentDate)
 	userDir := filepath.Join(dateDir, username)
@@ -417,41 +556,63 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		http.Error(w, fmt.Sprintf("推定サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("推定サーバからの確信度: %.2f%%", estimationConfidence)
 
-	currentTime = time.Now()
-
+	var roomID int
 	if estimationConfidence >= 20.0 && estimationConfidence <= 70.0 {
 		inquiryConfidence, err := forwardFilesToInquiryServer(wifiFilePath, bleFilePath, inquiryURL, estimationConfidence)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("照会サーバからの確信度: %.2f%%", inquiryConfidence)
 
-		err = updateUserPresence(db, userID, estimationConfidence, inquiryConfidence, currentTime)
-		if err != nil {
-			log.Printf("在室情報の更新に失敗しました: %v", err)
-		}
-	} else {
-		if estimationConfidence > 70.0 {
-			err = updateUserPresence(db, userID, estimationConfidence, 0, currentTime)
+		if estimationConfidence > inquiryConfidence {
+			roomID, err = determineRoomID(db, bleFilePath, wifiFilePath)
 			if err != nil {
-				log.Printf("在室情報の更新に失敗しました: %v", err)
+				http.Error(w, fmt.Sprintf("部屋の決定に失敗しました: %v", err), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("ユーザーID %d の部屋IDを %d と判定しました", userID, roomID)
+
+			err = updateUserPresence(db, userID, estimationConfidence, inquiryConfidence, currentTime, roomID)
+			if err != nil {
+				log.Printf("ユーザーID %d の在室情報の更新に失敗しました: %v", userID, err)
 			}
 		} else {
 			err = endUserSession(db, userID, currentTime)
 			if err != nil {
-				log.Printf("セッションの終了に失敗しました: %v", err)
+				log.Printf("ユーザーID %d のセッション終了に失敗しました: %v", userID, err)
 			} else {
-				log.Printf("ユーザーID %d のセッションを終了しました。", userID)
+				log.Printf("ユーザーID %d のセッションを終了しました", userID)
+			}
+		}
+	} else {
+		if estimationConfidence > 70.0 {
+			roomID, err = determineRoomID(db, bleFilePath, wifiFilePath)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("部屋の決定に失敗しました: %v", err), http.StatusInternalServerError)
+				return
+			}
+			log.Printf("ユーザーID %d の部屋IDを %d と判定しました", userID, roomID)
+
+			err = updateUserPresence(db, userID, estimationConfidence, 0, currentTime, roomID)
+			if err != nil {
+				log.Printf("ユーザーID %d の在室情報の更新に失敗しました: %v", userID, err)
+			}
+		} else {
+			err = endUserSession(db, userID, currentTime)
+			if err != nil {
+				log.Printf("ユーザーID %d のセッション終了に失敗しました: %v", userID, err)
+			} else {
+				log.Printf("ユーザーID %d のセッションを終了しました", userID)
 			}
 		}
 	}
 
 	response := UploadResponse{Message: "信号データを受信しました"}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+	}
 }
 
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, db *sql.DB, estimationURL string, inquiryURL string) {
@@ -466,7 +627,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	if dateStr != "" {
 		since, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			http.Error(w, "無効な date パラメータです。フォーマットは YYYY-MM-DD です。", http.StatusBadRequest)
+			http.Error(w, "無効なdateパラメータです。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
 			return
 		}
 		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
@@ -477,7 +638,6 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	sessions, err := fetchAllSessions(db, since)
 	if err != nil {
 		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
-		log.Printf("在室履歴取得クエリエラー: %v", err)
 		return
 	}
 
@@ -516,44 +676,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
-		log.Printf("JSONエンコードエラー: %v", err)
-		return
 	}
-}
-
-func fetchUserSessions(db *sql.DB, userID int, since time.Time) ([]PresenceSession, error) {
-	rows, err := db.Query(`
-        SELECT session_id, user_id, room_id, start_time, end_time, last_seen
-        FROM user_presence_sessions
-        WHERE user_id = $1 AND start_time >= $2
-        ORDER BY start_time
-    `, userID, since)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var sessions []PresenceSession
-	for rows.Next() {
-		var session PresenceSession
-		var endTime sql.NullTime
-		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime, &session.LastSeen); err != nil {
-			log.Printf("在室履歴のスキャンエラー: %v", err)
-			continue
-		}
-		if endTime.Valid {
-			session.EndTime = &endTime.Time
-		} else {
-			session.EndTime = nil
-		}
-		sessions = append(sessions, session)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return sessions, nil
 }
 
 func fetchAllSessions(db *sql.DB, since time.Time) ([]PresenceSession, error) {
@@ -573,7 +696,6 @@ func fetchAllSessions(db *sql.DB, since time.Time) ([]PresenceSession, error) {
 		var session PresenceSession
 		var endTime sql.NullTime
 		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime, &session.LastSeen); err != nil {
-			log.Printf("在室履歴のスキャンエラー: %v", err)
 			continue
 		}
 		if endTime.Valid {
@@ -589,6 +711,91 @@ func fetchAllSessions(db *sql.DB, since time.Time) ([]PresenceSession, error) {
 	}
 
 	return sessions, nil
+}
+
+func fetchUserSessions(db *sql.DB, userID int, since time.Time) ([]PresenceSession, error) {
+	rows, err := db.Query(`
+        SELECT session_id, user_id, room_id, start_time, end_time, last_seen
+        FROM user_presence_sessions
+        WHERE user_id = $1 AND start_time >= $2
+        ORDER BY start_time
+    `, userID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []PresenceSession
+	for rows.Next() {
+		var session PresenceSession
+		var endTime sql.NullTime
+		if err := rows.Scan(&session.SessionID, &session.UserID, &session.RoomID, &session.StartTime, &endTime, &session.LastSeen); err != nil {
+			continue
+		}
+		if endTime.Valid {
+			session.EndTime = &endTime.Time
+		} else {
+			session.EndTime = nil
+		}
+		sessions = append(sessions, session)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB, userID int) {
+	dateStr := r.URL.Query().Get("date")
+	var since time.Time
+	var err error
+
+	if dateStr != "" {
+		since, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			http.Error(w, "無効なdateパラメータです。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
+			return
+		}
+		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
+	} else {
+		since = time.Now().AddDate(0, -1, 0)
+	}
+
+	sessions, err := fetchUserSessions(db, userID, since)
+	if err != nil {
+		http.Error(w, "ユーザーの在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	historyMap := make(map[string][]PresenceSession)
+	for _, session := range sessions {
+		date := session.StartTime.Format("2006-01-02")
+		historyMap[date] = append(historyMap[date], session)
+	}
+
+	var userHistory []UserPresenceDay
+	for date, sessions := range historyMap {
+		userHistory = append(userHistory, UserPresenceDay{
+			Date:     date,
+			Sessions: sessions,
+		})
+	}
+
+	sort.Slice(userHistory, func(i, j int) bool {
+		return userHistory[i].Date < userHistory[j].Date
+	})
+
+	response := UserPresenceResponse{
+		UserID:  userID,
+		History: userHistory,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+	}
 }
 
 func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) {
@@ -611,7 +818,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	rows, err := db.Query(query)
 	if err != nil {
 		http.Error(w, "在室者情報の取得に失敗しました", http.StatusInternalServerError)
-		log.Printf("在室者情報取得クエリエラー: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -625,7 +831,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 		var lastSeen sql.NullTime
 
 		if err := rows.Scan(&roomID, &roomName, &userID, &lastSeen); err != nil {
-			log.Printf("行のスキャンエラー: %v", err)
 			continue
 		}
 
@@ -650,7 +855,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 
 	if err := rows.Err(); err != nil {
 		http.Error(w, "在室者情報の読み取り中にエラーが発生しました", http.StatusInternalServerError)
-		log.Printf("rows.Err(): %v", err)
 		return
 	}
 
@@ -664,8 +868,6 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
-		log.Printf("JSONエンコードエラー: %v", err)
-		return
 	}
 }
 
@@ -688,7 +890,8 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+	}
 }
 
 func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
@@ -705,7 +908,6 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
             WHERE end_time IS NULL AND last_seen < $1
         `, cutoffTime)
 		if err != nil {
-			log.Printf("クリーンアップ処理中のクエリエラー: %v", err)
 			continue
 		}
 
@@ -715,21 +917,17 @@ func cleanUpOldSessions(db *sql.DB, inactivityThreshold time.Duration) {
 
 		for rows.Next() {
 			if err := rows.Scan(&userID, &lastSeen); err != nil {
-				log.Printf("クリーンアップ処理中のスキャンエラー: %v", err)
 				continue
 			}
 			usersToEnd = append(usersToEnd, userID)
-			log.Printf("ユーザーID %d のセッションを終了対象として検出 (LastSeen: %s)", userID, lastSeen)
 		}
 		rows.Close()
 
 		for _, uid := range usersToEnd {
 			endTime := time.Now()
 			err := endUserSession(db, uid, endTime)
-			if err != nil {
-				log.Printf("ユーザーID %d のセッション終了エラー: %v", uid, err)
-			} else {
-				log.Printf("ユーザーID %d のセッションを終了しました。", uid)
+			if err == nil {
+				log.Printf("ユーザーID %d のセッションを終了しました", uid)
 			}
 		}
 	}
@@ -771,7 +969,7 @@ func main() {
 	log.Printf("Inquiry URL: %s", inquiryURL)
 	log.Printf("データベース接続文字列: %s", dbConnStr)
 	log.Printf("skipRegistration: %v", skipRegistration)
-	log.Printf("システムURI: %s", config.Registration.SystemURI)
+	log.Printf("System URI: %s", config.Registration.SystemURI)
 
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
@@ -779,8 +977,12 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := db.Ping(); err != nil {
+		log.Fatalf("データベース接続確認に失敗しました: %v\n", err)
+	}
+	log.Println("データベースに正常に接続しました。")
+
 	if !skipRegistration {
-		log.Println("skipRegistrationがfalseのため、サーバの登録を行います。")
 		registerURL := fmt.Sprintf("%s/api/register", proxyURL)
 
 		serverPortInt, err := strconv.Atoi(*port)
@@ -795,12 +997,12 @@ func main() {
 
 		registerBody, err := json.Marshal(registerData)
 		if err != nil {
-			log.Fatalf("登録リクエストのエンコードエラー: %s\n", err)
+			log.Fatalf("登録リクエストのエンコードエラー: %v\n", err)
 		}
 
 		resp, err := http.Post(registerURL, "application/json", bytes.NewBuffer(registerBody))
 		if err != nil {
-			log.Fatalf("サーバの登録エラー: %s\n", err)
+			log.Fatalf("サーバの登録エラー: %v\n", err)
 		}
 		defer resp.Body.Close()
 
@@ -809,8 +1011,6 @@ func main() {
 		}
 
 		log.Println("サーバの登録が完了しました。")
-	} else {
-		log.Println("skipRegistrationがtrueのため、サーバの登録をスキップします。")
 	}
 
 	go cleanUpOldSessions(db, 10*time.Minute)
@@ -821,7 +1021,7 @@ func main() {
 			userIDStr := parts[2]
 			userID, err := strconv.Atoi(userIDStr)
 			if err != nil {
-				http.Error(w, "無効な user_id です", http.StatusBadRequest)
+				http.Error(w, "無効なuser_idです", http.StatusBadRequest)
 				return
 			}
 			handleUserPresenceHistory(w, r, db, userID)
@@ -853,6 +1053,7 @@ func main() {
 		}
 		handleSignalsSubmit(w, r, db, estimationURL, inquiryURL)
 	})
+
 	http.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
@@ -876,60 +1077,6 @@ func main() {
 
 	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, handler); err != nil {
-		log.Fatalf("サーバを開始できませんでした: %s\n", err)
-	}
-}
-
-func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB, userID int) {
-	dateStr := r.URL.Query().Get("date")
-	var since time.Time
-	var err error
-
-	if dateStr != "" {
-		since, err = time.Parse("2006-01-02", dateStr)
-		if err != nil {
-			http.Error(w, "無効な date パラメータです。フォーマットは YYYY-MM-DD です。", http.StatusBadRequest)
-			return
-		}
-		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
-	} else {
-		since = time.Now().AddDate(0, -1, 0)
-	}
-
-	sessions, err := fetchUserSessions(db, userID, since)
-	if err != nil {
-		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
-		log.Printf("在室履歴取得クエリエラー: %v", err)
-		return
-	}
-
-	historyMap := make(map[string][]PresenceSession)
-	for _, session := range sessions {
-		date := session.StartTime.Format("2006-01-02")
-		historyMap[date] = append(historyMap[date], session)
-	}
-
-	var userHistory []UserPresenceDay
-	for date, sessions := range historyMap {
-		userHistory = append(userHistory, UserPresenceDay{
-			Date:     date,
-			Sessions: sessions,
-		})
-	}
-
-	sort.Slice(userHistory, func(i, j int) bool {
-		return userHistory[i].Date < userHistory[j].Date
-	})
-
-	response := UserPresenceResponse{
-		UserID:  userID,
-		History: userHistory,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
-		log.Printf("JSONエンコードエラー: %v", err)
-		return
+		log.Fatalf("サーバを開始できませんでした: %v\n", err)
 	}
 }
