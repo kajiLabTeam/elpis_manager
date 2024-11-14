@@ -1,7 +1,4 @@
-# モードの設定: "docker" または "local"
 mode = "docker"
-
-# サーバがリッスンするポート番号
 server_port = "8010"
 
 [Docker]

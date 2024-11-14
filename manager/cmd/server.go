@@ -61,8 +61,9 @@ type UploadResponse struct {
 }
 
 type RegisterRequest struct {
-	SystemURI string `json:"system_uri"`
-	Port      int    `json:"port"`
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Port   int    `json:"port,omitempty"`
 }
 
 type PresenceSession struct {
@@ -1080,8 +1081,9 @@ func main() {
 			}
 
 			registerData := RegisterRequest{
-				SystemURI: config.Registration.SystemURI,
-				Port:      serverPortInt,
+				Scheme: "http",
+				Host:   config.Registration.SystemURI,
+				Port:   serverPortInt,
 			}
 
 			for {

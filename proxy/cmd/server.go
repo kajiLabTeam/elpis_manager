@@ -17,6 +17,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// Config 設定ファイルの構造体
 type Config struct {
 	Database struct {
 		ConnStr string `toml:"conn_str"`
@@ -26,21 +27,26 @@ type Config struct {
 	} `toml:"server"`
 }
 
+// RegisterRequest 連合登録リクエストの構造体
 type RegisterRequest struct {
-	SystemURI string `json:"system_uri"`
-	Port      int    `json:"port"`
+	Scheme string `json:"scheme"` // 必須: "http" または "https"
+	Host   string `json:"host"`   // 必須: ホスト名またはIPアドレス
+	Port   int    `json:"port"`   // オプション: ポート番号
 }
 
+// RegisterResponse 連合登録レスポンスの構造体
 type RegisterResponse struct {
 	Message string `json:"message"`
 }
 
+// InquiryRequest 照会リクエストの構造体
 type InquiryRequest struct {
 	WifiData           string  `json:"wifi_data"`
 	BleData            string  `json:"ble_data"`
 	PresenceConfidence float64 `json:"presence_confidence"`
 }
 
+// InquiryResponse 照会レスポンスの構造体
 type InquiryResponse struct {
 	ServerConfidence float64 `json:"server_confidence"`
 	Success          bool    `json:"success"`
@@ -89,6 +95,7 @@ func main() {
 	}
 }
 
+// registerHandler /api/register エンドポイントのハンドラ
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -101,6 +108,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRegisterPost POST /api/register の処理
 func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -109,15 +117,35 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[INFO] /api/register POST リクエスト - SystemURI: %s, Port: %d", req.SystemURI, req.Port)
+	// スキームのバリデーション
+	if req.Scheme != "http" && req.Scheme != "https" {
+		log.Printf("[ERROR] 不正なスキーム: %s", req.Scheme)
+		http.Error(w, "スキームは 'http' または 'https' でなければなりません", http.StatusBadRequest)
+		return
+	}
+
+	// 必須フィールドのチェック
+	if req.Host == "" {
+		log.Printf("[ERROR] ホストが指定されていません")
+		http.Error(w, "ホストは必須です", http.StatusBadRequest)
+		return
+	}
+
+	// system_uri の構築
+	systemURI := fmt.Sprintf("%s://%s", req.Scheme, req.Host)
+	if req.Port != 0 {
+		systemURI = fmt.Sprintf("%s:%d", systemURI, req.Port)
+	}
+
+	log.Printf("[INFO] /api/register POST リクエスト - SystemURI: %s", systemURI)
 
 	query := `
-        INSERT INTO organizations (api_endpoint, port_number)
-        VALUES ($1, $2)
+        INSERT INTO organizations (api_endpoint, port_number, last_updated)
+        VALUES ($1, $2, CURRENT_TIMESTAMP)
         ON CONFLICT (api_endpoint)
-        DO UPDATE SET port_number = $2, last_updated = CURRENT_TIMESTAMP
+        DO UPDATE SET port_number = EXCLUDED.port_number, last_updated = CURRENT_TIMESTAMP
     `
-	_, err := db.Exec(query, req.SystemURI, req.Port)
+	_, err := db.Exec(query, req.Scheme+"://"+req.Host, req.Port)
 	if err != nil {
 		log.Printf("[ERROR] データベースエラー: %v", err)
 		http.Error(w, "内部サーバーエラーが発生しました", http.StatusInternalServerError)
@@ -137,6 +165,7 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[INFO] /api/register POST レスポンス - Message: %s", resp.Message)
 }
 
+// handleRegisterGet GET /api/register の処理
 func handleRegisterGet(w http.ResponseWriter, _ *http.Request) {
 	query := `SELECT api_endpoint, port_number, last_updated FROM organizations`
 	rows, err := db.Query(query)
@@ -180,6 +209,7 @@ func handleRegisterGet(w http.ResponseWriter, _ *http.Request) {
 	log.Printf("[INFO] /api/register GET レスポンス - 組織数: %d", len(organizations))
 }
 
+// inquiryHandler /api/inquiry エンドポイントのハンドラ
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		log.Printf("[WARN] 許可されていないメソッド: %s, パス: %s", r.Method, r.URL.Path)
@@ -300,6 +330,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	counterMutex.Unlock()
 }
 
+// querySystem 他の照会サーバに問い合わせる関数
 func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int, error) {
 	counterMutex.Lock()
 	queryCounter++
@@ -343,6 +374,7 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int,
 	return int(signalResp.ServerConfidence), nil
 }
 
+// csvToString 二次元スライスをCSV形式の文字列に変換する関数
 func csvToString(data [][]string) string {
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
@@ -353,6 +385,7 @@ func csvToString(data [][]string) string {
 	return buf.String()
 }
 
+// parseCSVFromString 文字列からCSVをパースして二次元スライスに変換する関数
 func parseCSVFromString(data string) ([][]string, error) {
 	reader := csv.NewReader(strings.NewReader(data))
 	records, err := reader.ReadAll()
@@ -362,6 +395,7 @@ func parseCSVFromString(data string) ([][]string, error) {
 	return records, nil
 }
 
+// cleanupCache 定期的にキャッシュをクリーンアップする関数
 func cleanupCache() {
 	for {
 		time.Sleep(1 * time.Hour)
