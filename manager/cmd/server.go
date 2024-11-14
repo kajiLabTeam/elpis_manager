@@ -1064,11 +1064,12 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 	defer bleFile.Close()
 
 	baseDir := "./estimation"
+	sanitizedRoomID := filepath.Base(roomID)
 	var saveDir string
 	if sampleType == "positive" {
-		saveDir = filepath.Join(baseDir, "positive_samples")
+		saveDir = filepath.Join(baseDir, "positive_samples", sanitizedRoomID)
 	} else {
-		saveDir = filepath.Join(baseDir, "negative_samples")
+		saveDir = filepath.Join(baseDir, "negative_samples", sanitizedRoomID)
 	}
 
 	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
@@ -1076,11 +1077,9 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sanitizedRoomID := filepath.Base(roomID)
-
 	timestamp := time.Now().Unix()
-	wifiFileName := fmt.Sprintf("wifi_data_%s_%d.csv", sanitizedRoomID, timestamp)
-	bleFileName := fmt.Sprintf("ble_data_%s_%d.csv", sanitizedRoomID, timestamp)
+	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", timestamp)
+	bleFileName := fmt.Sprintf("ble_data_%d.csv", timestamp)
 
 	wifiFilePath := filepath.Join(saveDir, wifiFileName)
 	bleFilePath := filepath.Join(saveDir, bleFileName)

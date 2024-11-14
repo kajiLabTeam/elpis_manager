@@ -7,7 +7,7 @@ CMD_PATH := ./cmd/server.go
 .PHONY: build up down restart clean help \
         run-proxy run-manager run-est-model run-est-api \
         restart-proxy restart-manager restart-est-api \
-        run-test-est-api run-test-manager run-test-proxy run-test-web \
+        run-test-est-api run-test-manager run-test-proxy run-test-web run-test-fingerprint \
         db-up db-down
 
 # Default flags for running Go services locally
@@ -74,6 +74,9 @@ run-test-proxy: ## Run the Proxy e2e test
 
 run-test-web: ## Run the Web e2e test
 	bash ./e2e/web_test.sh
+
+run-test-fingerprint: ## Run the Fingerprint e2e test
+	bash ./e2e/fingerprint_test.sh
 
 # Help message
 help: ## Display this help message
