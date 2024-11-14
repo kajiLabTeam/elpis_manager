@@ -517,7 +517,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	defer bleFile.Close()
 
 	username := getUserID(r)
-
 	userID, err := getUserIDFromDB(db, username)
 	if err != nil {
 		http.Error(w, "ユーザーが見つかりません", http.StatusUnauthorized)
@@ -548,6 +547,33 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	}
 	if err := saveUploadedFile(bleFile, bleFilePath); err != nil {
 		http.Error(w, "BLEデータの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	wifiFileInfo, err := os.Stat(wifiFilePath)
+	if err != nil {
+		http.Error(w, "WiFiデータの検証に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	bleFileInfo, err := os.Stat(bleFilePath)
+	if err != nil {
+		http.Error(w, "BLEデータの検証に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	var emptyFiles []string
+	if wifiFileInfo.Size() == 0 {
+		emptyFiles = append(emptyFiles, "WiFiデータファイルが空です")
+	}
+	if bleFileInfo.Size() == 0 {
+		emptyFiles = append(emptyFiles, "BLEデータファイルが空です")
+	}
+
+	if len(emptyFiles) > 0 {
+		errorMessage := strings.Join(emptyFiles, "; ")
+		http.Error(w, errorMessage, http.StatusBadRequest)
+		log.Printf("ユーザーID %d の空ファイルがアップロードされました", userID)
 		return
 	}
 
