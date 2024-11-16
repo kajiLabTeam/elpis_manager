@@ -341,8 +341,6 @@ func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (f
 		return 0, fmt.Errorf("予測パーセンテージの解析に失敗しました: %v", err)
 	}
 
-	log.Printf("推定信頼度を受信しました: %.2f%%", percentage)
-
 	return percentage, nil
 }
 
@@ -382,8 +380,6 @@ func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquir
 	if err := json.NewDecoder(resp.Body).Decode(&inquiryResp); err != nil {
 		return 0, fmt.Errorf("照会サーバのレスポンスパースに失敗しました: %v", err)
 	}
-
-	log.Printf("照会サーバからの照会信頼度を受信しました: %.2f", inquiryResp.ServerConfidence)
 
 	return inquiryResp.ServerConfidence, nil
 }
