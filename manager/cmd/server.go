@@ -124,6 +124,10 @@ type PredictionResponse struct {
 	PredictedPercentage string `json:"predicted_percentage"`
 }
 
+type EstimationServerResponse struct {
+	PercentageProcessed int `json:"percentage_processed"`
+}
+
 type InquiryRequest struct {
 	WifiData           string  `json:"wifi_data"`
 	BleData            string  `json:"ble_data"`
@@ -144,6 +148,119 @@ type WiFiSignal struct {
 	SSID  string
 	BSSID string
 	RSSI  float64
+}
+
+func forwardFilesToEstimationServerCustom(wifiFile multipart.File, bleFile multipart.File, estimationURL string) (int, error) {
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+
+	// wifi_dataファイルをフォームに追加
+	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
+	if err != nil {
+		return 0, fmt.Errorf("wifi_dataフォームファイルの作成に失敗しました: %v", err)
+	}
+	if _, err := io.Copy(wifiPart, wifiFile); err != nil {
+		return 0, fmt.Errorf("wifi_dataファイルのコピーに失敗しました: %v", err)
+	}
+
+	// ble_dataファイルをフォームに追加
+	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
+	if err != nil {
+		return 0, fmt.Errorf("ble_dataフォームファイルの作成に失敗しました: %v", err)
+	}
+	if _, err := io.Copy(blePart, bleFile); err != nil {
+		return 0, fmt.Errorf("ble_dataファイルのコピーに失敗しました: %v", err)
+	}
+
+	writer.Close()
+
+	// POSTリクエストの作成
+	req, err := http.NewRequest("POST", estimationURL, &requestBody)
+	if err != nil {
+		return 0, fmt.Errorf("POSTリクエストの作成に失敗しました: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// リクエストの送信
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("推定サーバーへのリクエスト送信に失敗しました: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("推定サーバーが非200ステータスコードを返しました: %d", resp.StatusCode)
+	}
+
+	// 推定サーバーのレスポンスを解析
+	var estResp EstimationServerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&estResp); err != nil {
+		return 0, fmt.Errorf("推定サーバーのレスポンス解析に失敗しました: %v", err)
+	}
+
+	log.Printf("推定信頼度を受信しました: %.2f%%", estResp.PercentageProcessed)
+
+	return estResp.PercentageProcessed, nil
+}
+
+// /api/signals/server エンドポイント用のハンドラー
+func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimationURL string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "許可されていないメソッドです。POSTを使用してください。", http.StatusMethodNotAllowed)
+		return
+	}
+
+	log.Println("POST /api/signals/server リクエストを受信しました")
+
+	// multipart/form-dataの解析
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		log.Printf("multipart/form-dataの解析に失敗しました: %v", err)
+		http.Error(w, "multipart/form-dataの解析に失敗しました", http.StatusBadRequest)
+		return
+	}
+
+	// wifi_dataファイルの取得
+	wifiFile, _, err := r.FormFile("wifi_data")
+	if err != nil {
+		log.Printf("wifi_dataファイルの取得に失敗しました: %v", err)
+		http.Error(w, "wifi_dataファイルの取得に失敗しました", http.StatusBadRequest)
+		return
+	}
+	defer wifiFile.Close()
+
+	// ble_dataファイルの取得
+	bleFile, _, err := r.FormFile("ble_data")
+	if err != nil {
+		log.Printf("ble_dataファイルの取得に失敗しました: %v", err)
+		http.Error(w, "ble_dataファイルの取得に失敗しました", http.StatusBadRequest)
+		return
+	}
+	defer bleFile.Close()
+
+	// 推定サーバーにファイルを転送
+	percentage, err := forwardFilesToEstimationServerCustom(wifiFile, bleFile, estimationURL)
+	if err != nil {
+		log.Printf("推定サーバーへのファイル転送に失敗しました: %v", err)
+		http.Error(w, fmt.Sprintf("推定サーバーエラー: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("推定信頼度を %.2f%% 取得しました", percentage)
+
+	// レスポンスの準備と送信
+	response := EstimationServerResponse{
+		PercentageProcessed: percentage,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("JSONレスポンスのエンコードに失敗しました: %v", err)
+		http.Error(w, "JSONレスポンスのエンコードに失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("POST /api/signals/server リクエストの処理が完了しました")
 }
 
 func parseBLECSV(filePath string) ([]BeaconSignal, error) {
@@ -1244,11 +1361,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "メソッドが許可されていません", http.StatusMethodNotAllowed)
-			return
-		}
-		handleSignalsServer(w, r, db, estimationURL, inquiryURL)
+		handleSignalsServerSubmit(w, r, estimationURL)
 	})
 
 	mux.HandleFunc("/api/fingerprint/collect", handleFingerprintCollect)

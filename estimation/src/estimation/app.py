@@ -5,7 +5,6 @@ import numpy as np
 import joblib
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
-from typing import List
 import uvicorn
 import os
 
@@ -43,23 +42,36 @@ async def healthcheck():
     return {"status": "running"}
 
 @app.post("/predict")
-async def predict_percentage(file: UploadFile = File(...)):
+async def predict_percentage(
+    wifi_data: UploadFile = File(...),
+    ble_data: UploadFile = File(...)
+):
     """
-    CSVファイルを受け取り、予測されたパーセンテージを返却します。
+    WiFiとBLEのCSVファイルを受け取り、予測されたパーセンテージを返却します。
 
-    - **file**: CSVファイル
+    - **wifi_data**: WiFi用のCSVファイル
+    - **ble_data**: BLE用のCSVファイル
     """
     # ファイルの拡張子をチェック
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
+    for file in [wifi_data, ble_data]:
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail=f"Invalid file type for {file.filename}. Please upload a CSV file.")
 
     try:
-        # アップロードされたファイルをDataFrameに読み込む
-        contents = await file.read()
-        df = pd.read_csv(pd.io.common.BytesIO(contents), header=None, names=['timestamp', 'identifier', 'rssi'])
+        # WiFiデータの読み込み
+        wifi_contents = await wifi_data.read()
+        wifi_df = pd.read_csv(pd.io.common.BytesIO(wifi_contents), header=None, names=['timestamp', 'BSSID', 'rssi'])
 
-        # ピボットテーブルの作成
-        pivot_df = df.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
+        # BLEデータの読み込み
+        ble_contents = await ble_data.read()
+        ble_df = pd.read_csv(pd.io.common.BytesIO(ble_contents), header=None, names=['timestamp', 'UUID', 'rssi'])
+
+        # ピボットテーブルの作成 (WiFiとBLEを統合する場合の例)
+        combined_df = pd.concat([
+            wifi_df.rename(columns={'BSSID': 'identifier'}),
+            ble_df.rename(columns={'UUID': 'identifier'})
+        ])
+        pivot_df = combined_df.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
         pivot_df.fillna(-100, inplace=True)
 
         # 学習時のピボットテーブルと同じ列順に揃える
@@ -74,11 +86,12 @@ async def predict_percentage(file: UploadFile = File(...)):
         # 予測
         y_pred_judgement = model.predict(X_judgement_scaled)
 
-        # ファイル全体の適合度（平均値）を計算
-        average_percentage = np.mean(y_pred_judgement)
+        # ファイル全体の適合度（平均値）を計算し、四捨五入して整数に変換
+        average_percentage = int(np.round(np.mean(y_pred_judgement)))
 
-        # 結果をJSONで返却
-        return JSONResponse(content={"predicted_percentage": f"{average_percentage:.2f}%"})
+        # 結果をJSONで返却（整数型）
+        return JSONResponse(content={"percentage_processed": average_percentage})
+
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during prediction: {e}")
