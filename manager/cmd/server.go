@@ -199,7 +199,7 @@ func forwardFilesToEstimationServerCustom(wifiFile multipart.File, bleFile multi
 		return 0, fmt.Errorf("推定サーバーのレスポンス解析に失敗しました: %v", err)
 	}
 
-	log.Printf("推定信頼度を受信しました: %.2f%%", estResp.PercentageProcessed)
+	log.Printf("推定信頼度を受信しました: %d", estResp.PercentageProcessed)
 
 	return estResp.PercentageProcessed, nil
 }
@@ -246,7 +246,7 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimatio
 		return
 	}
 
-	log.Printf("推定信頼度を %.2f%% 取得しました", percentage)
+	log.Printf("推定信頼度を %d 取得しました", percentage)
 
 	// レスポンスの準備と送信
 	response := EstimationServerResponse{
