@@ -150,51 +150,95 @@ type WiFiSignal struct {
 	RSSI  float64
 }
 
-func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (float64, error) {
-	file, err := os.Open(bleFilePath)
+func forwardFilesToEstimationServer(bleFilePath string, wifiFilePath string, estimationURL string) (float64, error) {
+	combinedFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("combined_data_%d.csv", time.Now().Unix()))
+	defer os.Remove(combinedFilePath)
+
+	bleFile, err := os.Open(bleFilePath)
 	if err != nil {
-		return 0, fmt.Errorf("BLEデータファイルのオープンに失敗しました: %v", err)
+		return 0, fmt.Errorf("BLEファイルを開くのに失敗しました: %v", err)
 	}
-	defer file.Close()
+	defer bleFile.Close()
+
+	wifiFile, err := os.Open(wifiFilePath)
+	if err != nil {
+		return 0, fmt.Errorf("WiFiファイルを開くのに失敗しました: %v", err)
+	}
+	defer wifiFile.Close()
+
+	bleReader := csv.NewReader(bleFile)
+	wifiReader := csv.NewReader(wifiFile)
+
+	bleRecords, err := bleReader.ReadAll()
+	if err != nil {
+		return 0, fmt.Errorf("BLE CSVの読み取りに失敗しました: %v", err)
+	}
+
+	wifiRecords, err := wifiReader.ReadAll()
+	if err != nil {
+		return 0, fmt.Errorf("WiFi CSVの読み取りに失敗しました: %v", err)
+	}
+
+	combinedRecords := append(bleRecords, wifiRecords...)
+
+	combinedFile, err := os.Create(combinedFilePath)
+	if err != nil {
+		return 0, fmt.Errorf("結合されたCSVファイルの作成に失敗しました: %v", err)
+	}
+	defer combinedFile.Close()
+
+	writer := csv.NewWriter(combinedFile)
+	if err := writer.WriteAll(combinedRecords); err != nil {
+		return 0, fmt.Errorf("結合されたCSVの書き込みに失敗しました: %v", err)
+	}
+	writer.Flush()
 
 	var requestBody bytes.Buffer
-	writer := multipart.NewWriter(&requestBody)
-	part, err := writer.CreateFormFile("file", filepath.Base(bleFilePath))
+	writerMultipart := multipart.NewWriter(&requestBody)
+	filePart, err := writerMultipart.CreateFormFile("file", filepath.Base(combinedFilePath))
 	if err != nil {
-		return 0, fmt.Errorf("マルチパートフォームの作成に失敗しました: %v", err)
+		return 0, fmt.Errorf("フォームファイルの作成に失敗しました: %v", err)
 	}
-	_, err = io.Copy(part, file)
+
+	combinedData, err := os.Open(combinedFilePath)
 	if err != nil {
-		return 0, fmt.Errorf("ファイルのコピーに失敗しました: %v", err)
+		return 0, fmt.Errorf("結合されたCSVファイルの開封に失敗しました: %v", err)
 	}
-	writer.Close()
+	defer combinedData.Close()
+
+	_, err = io.Copy(filePart, combinedData)
+	if err != nil {
+		return 0, fmt.Errorf("結合されたCSVデータのコピーに失敗しました: %v", err)
+	}
+
+	writerMultipart.Close()
 
 	req, err := http.NewRequest("POST", estimationURL, &requestBody)
 	if err != nil {
-		return 0, fmt.Errorf("推定サーバへのリクエスト作成に失敗しました: %v", err)
+		return 0, fmt.Errorf("推定サーバーへのリクエストの作成に失敗しました: %v", err)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", writerMultipart.FormDataContentType())
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("推定サーバへのリクエスト送信に失敗しました: %v", err)
+		return 0, fmt.Errorf("推定サーバーへのリクエストの送信に失敗しました: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("推定サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
+		return 0, fmt.Errorf("推定サーバーからの無効なレスポンス。ステータスコード: %d", resp.StatusCode)
 	}
 
 	var predictionResp PredictionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&predictionResp); err != nil {
-		return 0, fmt.Errorf("推定サーバのレスポンスパースに失敗しました: %v", err)
+		return 0, fmt.Errorf("推定サーバーのレスポンスの解析に失敗しました: %v", err)
 	}
 
 	percentageStr := strings.TrimSpace(strings.TrimSuffix(predictionResp.PredictedPercentage, "%"))
 	percentage, err := strconv.ParseFloat(percentageStr, 64)
 	if err != nil {
-		return 0, fmt.Errorf("予測パーセンテージの解析に失敗しました: %v", err)
+		return 0, fmt.Errorf("予測された割合の解析に失敗しました: %v", err)
 	}
 
 	log.Printf("推定信頼度を受信しました: %.2f%%", percentage)
@@ -204,7 +248,7 @@ func forwardFilesToEstimationServer(bleFilePath string, estimationURL string) (f
 
 func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimationURL string) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "許可されていないメソッドです。POSTを使用してください。", http.StatusMethodNotAllowed)
+		http.Error(w, "メソッドが許可されていません。POSTを使用してください。", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -224,6 +268,14 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimatio
 	}
 	defer bleFile.Close()
 
+	wifiFile, _, err := r.FormFile("wifi_data")
+	if err != nil {
+		log.Printf("wifi_dataファイルの取得に失敗しました: %v", err)
+		http.Error(w, "wifi_dataファイルの取得に失敗しました", http.StatusBadRequest)
+		return
+	}
+	defer wifiFile.Close()
+
 	tempBleFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("ble_data_%d.csv", time.Now().Unix()))
 	if err := saveUploadedFile(bleFile, tempBleFilePath); err != nil {
 		log.Printf("ble_dataファイルの保存に失敗しました: %v", err)
@@ -232,14 +284,22 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimatio
 	}
 	defer os.Remove(tempBleFilePath)
 
-	percentage, err := forwardFilesToEstimationServer(tempBleFilePath, estimationURL)
+	tempWifiFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("wifi_data_%d.csv", time.Now().Unix()))
+	if err := saveUploadedFile(wifiFile, tempWifiFilePath); err != nil {
+		log.Printf("wifi_dataファイルの保存に失敗しました: %v", err)
+		http.Error(w, "wifi_dataファイルの保存に失敗しました", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tempWifiFilePath)
+
+	percentage, err := forwardFilesToEstimationServer(tempBleFilePath, tempWifiFilePath, estimationURL)
 	if err != nil {
 		log.Printf("推定サーバーへのファイル転送に失敗しました: %v", err)
 		http.Error(w, fmt.Sprintf("推定サーバーエラー: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("推定信頼度を %.2f 取得しました", percentage)
+	log.Printf("推定信頼度を受信しました: %.2f", percentage)
 
 	response := EstimationServerResponse{
 		PercentageProcessed: percentage,
@@ -258,7 +318,7 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, estimatio
 func parseBLECSV(filePath string) ([]BeaconSignal, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("BLE CSVファイルのオープンに失敗しました: %v", err)
+		return nil, fmt.Errorf("BLE CSVファイルの開封に失敗しました: %v", err)
 	}
 	defer file.Close()
 
@@ -291,7 +351,7 @@ func parseBLECSV(filePath string) ([]BeaconSignal, error) {
 func parseWifiCSV(filePath string) ([]WiFiSignal, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("WiFi CSVファイルのオープンに失敗しました: %v", err)
+		return nil, fmt.Errorf("WiFi CSVファイルの開封に失敗しました: %v", err)
 	}
 	defer file.Close()
 
@@ -335,7 +395,7 @@ func getRoomIDByBeacon(db *sql.DB, beacon BeaconSignal) (int, error) {
 		}
 		return 0, err
 	}
-	log.Printf("ビーコンUUID=%s（RSSI=%.2f）に対応する部屋ID=%dが見つかりました", beacon.UUID, beacon.RSSI, roomID)
+	log.Printf("ビーコン UUID=%s (RSSI=%.2f) に対して room ID=%d を見つけました", beacon.UUID, beacon.RSSI, roomID)
 	return roomID, nil
 }
 
@@ -353,7 +413,7 @@ func getRoomIDByWifi(db *sql.DB, wifi WiFiSignal) (int, error) {
 		}
 		return 0, err
 	}
-	log.Printf("WiFi BSSID=%s（RSSI=%.2f）に対応する部屋ID=%dが見つかりました", wifi.BSSID, wifi.RSSI, roomID)
+	log.Printf("WiFi BSSID=%s (RSSI=%.2f) に対して room ID=%d を見つけました", wifi.BSSID, wifi.RSSI, roomID)
 	return roomID, nil
 }
 
@@ -397,19 +457,19 @@ func determineRoomID(db *sql.DB, bleFilePath string, wifiFilePath string) (int, 
 	} else if wifiRoomID != 0 {
 		return wifiRoomID, nil
 	} else {
-		return 0, fmt.Errorf("有効なビーコンおよびWiFiアクセスポイントが見つかりません")
+		return 0, fmt.Errorf("有効なBLEまたはWiFiアクセスポイントが見つかりません")
 	}
 }
 
 func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquiryURL string, confidence float64) (float64, error) {
 	wifiData, err := os.ReadFile(wifiFilePath)
 	if err != nil {
-		return 0, fmt.Errorf("WiFiデータの読み込みに失敗しました: %v", err)
+		return 0, fmt.Errorf("WiFiデータの読み取りに失敗しました: %v", err)
 	}
 
 	bleData, err := os.ReadFile(bleFilePath)
 	if err != nil {
-		return 0, fmt.Errorf("BLEデータの読み込みに失敗しました: %v", err)
+		return 0, fmt.Errorf("BLEデータの読み取りに失敗しました: %v", err)
 	}
 
 	inquiryReq := InquiryRequest{
@@ -420,25 +480,25 @@ func forwardFilesToInquiryServer(wifiFilePath string, bleFilePath string, inquir
 
 	reqBody, err := json.Marshal(inquiryReq)
 	if err != nil {
-		return 0, fmt.Errorf("照会リクエストのエンコードに失敗しました: %v", err)
+		return 0, fmt.Errorf("問い合わせリクエストのエンコードに失敗しました: %v", err)
 	}
 
 	resp, err := http.Post(inquiryURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		return 0, fmt.Errorf("照会サーバへのリクエスト送信に失敗しました: %v", err)
+		return 0, fmt.Errorf("問い合わせサーバーへのリクエストの送信に失敗しました: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
+		return 0, fmt.Errorf("問い合わせサーバーからの無効なレスポンス。ステータスコード: %d", resp.StatusCode)
 	}
 
 	var inquiryResp InquiryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&inquiryResp); err != nil {
-		return 0, fmt.Errorf("照会サーバのレスポンスパースに失敗しました: %v", err)
+		return 0, fmt.Errorf("問い合わせサーバーのレスポンスの解析に失敗しました: %v", err)
 	}
 
-	log.Printf("照会サーバからの照会信頼度を受信しました: %.2f", inquiryResp.ServerConfidence)
+	log.Printf("問い合わせ信頼度を受信しました: %.2f", inquiryResp.ServerConfidence)
 
 	return inquiryResp.ServerConfidence, nil
 }
@@ -503,7 +563,7 @@ func endUserSession(db *sql.DB, userID int, endTime time.Time) error {
 		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
 	}
 	if rowsAffected > 0 {
-		log.Printf("ユーザーID %d のセッションを終了しました。終了時刻: %s", userID, endTime)
+		log.Printf("ユーザーID %d のセッションを %s に終了しました", userID, endTime)
 	}
 	return nil
 }
@@ -523,7 +583,7 @@ func updateLastSeen(db *sql.DB, userID int, lastSeen time.Time) error {
 		return fmt.Errorf("RowsAffectedの取得に失敗しました: %v", err)
 	}
 	if rowsAffected > 0 {
-		log.Printf("ユーザーID %d のlast_seenを更新しました。", userID)
+		log.Printf("ユーザーID %d のlast_seenを更新しました", userID)
 	}
 	return nil
 }
@@ -545,9 +605,9 @@ func updateUserPresence(db *sql.DB, userID int, estimationConfidence float64, in
 			if err == sql.ErrNoRows {
 				err = startUserSession(db, userID, roomID, lastSeen)
 				if err != nil {
-					return fmt.Errorf("新規セッションの開始に失敗しました: %v", err)
+					return fmt.Errorf("新しいセッションの開始に失敗しました: %v", err)
 				}
-				log.Printf("ユーザーID %d の新しいセッションを部屋ID %d で開始しました。", userID, roomID)
+				log.Printf("ユーザーID %d の新しいセッションを room ID %d で開始しました", userID, roomID)
 			} else {
 				return fmt.Errorf("現在のセッションの取得に失敗しました: %v", err)
 			}
@@ -569,14 +629,14 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "WiFiデータファイルの読み込みに失敗しました", http.StatusBadRequest)
+		http.Error(w, "WiFiデータファイルの読み取りに失敗しました", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "BLEデータファイルの読み込みに失敗しました", http.StatusBadRequest)
+		http.Error(w, "BLEデータファイルの読み取りに失敗しました", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
@@ -638,13 +698,13 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	if len(emptyFiles) > 0 {
 		errorMessage := strings.Join(emptyFiles, "; ")
 		http.Error(w, errorMessage, http.StatusBadRequest)
-		log.Printf("ユーザーID %d の空ファイルがアップロードされました", userID)
+		log.Printf("ユーザーID %d が空のファイルをアップロードしました", userID)
 		return
 	}
 
-	estimationConfidence, err := forwardFilesToEstimationServer(bleFilePath, estimationURL)
+	estimationConfidence, err := forwardFilesToEstimationServer(bleFilePath, wifiFilePath, estimationURL)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("推定サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("推定サーバーへの転送エラー: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -652,21 +712,21 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 	if estimationConfidence >= 20.0 && estimationConfidence <= 70.0 {
 		inquiryConfidence, err := forwardFilesToInquiryServer(wifiFilePath, bleFilePath, inquiryURL, estimationConfidence)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("照会サーバへのファイル転送エラー: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("問い合わせサーバーへの転送エラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 
 		if estimationConfidence > inquiryConfidence {
 			roomID, err = determineRoomID(db, bleFilePath, wifiFilePath)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("部屋の決定に失敗しました: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("部屋IDの決定に失敗しました: %v", err), http.StatusInternalServerError)
 				return
 			}
-			log.Printf("ユーザーID %d の部屋IDを %d と判定しました", userID, roomID)
+			log.Printf("ユーザーID %d のために部屋ID %d を決定しました", userID, roomID)
 
 			err = updateUserPresence(db, userID, estimationConfidence, inquiryConfidence, currentTime, roomID)
 			if err != nil {
-				log.Printf("ユーザーID %d の在室情報の更新に失敗しました: %v", userID, err)
+				log.Printf("ユーザーID %d のプレゼンス更新に失敗しました: %v", userID, err)
 			}
 		} else {
 			err = endUserSession(db, userID, currentTime)
@@ -680,14 +740,14 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		if estimationConfidence > 70.0 {
 			roomID, err = determineRoomID(db, bleFilePath, wifiFilePath)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("部屋の決定に失敗しました: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("部屋IDの決定に失敗しました: %v", err), http.StatusInternalServerError)
 				return
 			}
-			log.Printf("ユーザーID %d の部屋IDを %d と判定しました", userID, roomID)
+			log.Printf("ユーザーID %d のために部屋ID %d を決定しました", userID, roomID)
 
 			err = updateUserPresence(db, userID, estimationConfidence, 0, currentTime, roomID)
 			if err != nil {
-				log.Printf("ユーザーID %d の在室情報の更新に失敗しました: %v", userID, err)
+				log.Printf("ユーザーID %d のプレゼンス更新に失敗しました: %v", userID, err)
 			}
 		} else {
 			err = endUserSession(db, userID, currentTime)
@@ -699,10 +759,10 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, db *sql.DB, est
 		}
 	}
 
-	response := UploadResponse{Message: "信号データを受信しました"}
+	response := UploadResponse{Message: "シグナルデータを受信しました"}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		http.Error(w, "JSONレスポンスのエンコードに失敗しました", http.StatusInternalServerError)
 	}
 }
 
@@ -718,7 +778,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	if dateStr != "" {
 		since, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			http.Error(w, "無効なdateパラメータです。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
+			http.Error(w, "日付パラメータが無効です。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
 			return
 		}
 		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
@@ -728,7 +788,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 	sessions, err := fetchAllSessions(db, since)
 	if err != nil {
-		http.Error(w, "在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		http.Error(w, "プレゼンス履歴の取得に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
@@ -766,7 +826,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		http.Error(w, "JSONレスポンスのエンコードに失敗しました", http.StatusInternalServerError)
 	}
 }
 
@@ -846,7 +906,7 @@ func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.D
 	if dateStr != "" {
 		since, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			http.Error(w, "無効なdateパラメータです。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
+			http.Error(w, "日付パラメータが無効です。フォーマットはYYYY-MM-DDです。", http.StatusBadRequest)
 			return
 		}
 		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
@@ -856,7 +916,7 @@ func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.D
 
 	sessions, err := fetchUserSessions(db, userID, since)
 	if err != nil {
-		http.Error(w, "ユーザーの在室履歴の取得に失敗しました", http.StatusInternalServerError)
+		http.Error(w, "ユーザープレゼンス履歴の取得に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
@@ -885,7 +945,7 @@ func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, db *sql.D
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		http.Error(w, "JSONレスポンスのエンコードに失敗しました", http.StatusInternalServerError)
 	}
 }
 
@@ -908,7 +968,7 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 
 	rows, err := db.Query(query)
 	if err != nil {
-		http.Error(w, "在室者情報の取得に失敗しました", http.StatusInternalServerError)
+		http.Error(w, "現在の占有者の取得に失敗しました", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -945,7 +1005,7 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 	}
 
 	if err := rows.Err(); err != nil {
-		http.Error(w, "在室者情報の読み取り中にエラーが発生しました", http.StatusInternalServerError)
+		http.Error(w, "現在の占有者の読み取り中にエラーが発生しました", http.StatusInternalServerError)
 		return
 	}
 
@@ -958,7 +1018,7 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, db *sql.DB) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		http.Error(w, "JSONレスポンスのエンコードに失敗しました", http.StatusInternalServerError)
 	}
 }
 
@@ -970,9 +1030,9 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 
 	if err := db.Ping(); err != nil {
 		response.Status = "error"
-		response.Database = "unreachable"
+		response.Database = "接続不可"
 	} else {
-		response.Database = "reachable"
+		response.Database = "接続可能"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1052,18 +1112,18 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			const maxBodySize = 10 * 1024 * 1024
 			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
 			if err != nil {
-				log.Printf("RequestID %d: Error reading request body: %v", id, err)
+				log.Printf("リクエストID %d: リクエストボディの読み取り中にエラーが発生しました: %v", id, err)
 			} else {
 				requestBody = string(body)
 				r.Body = io.NopCloser(bytes.NewBuffer(body))
 			}
 		}
 
-		logLine := fmt.Sprintf("RequestID: %d | IP: %s | User-Agent: %s | Time: %d | Method: %s | URI: %s",
+		logLine := fmt.Sprintf("リクエストID: %d | IP: %s | User-Agent: %s | 時間: %d | メソッド: %s | URI: %s",
 			id, ip, userAgent, unixTime, r.Method, r.RequestURI)
 
 		if !excludeBody && requestBody != "" {
-			logLine += fmt.Sprintf(" | Content: %s", sanitizeString(requestBody))
+			logLine += fmt.Sprintf(" | コンテンツ: %s", sanitizeString(requestBody))
 		}
 
 		log.Println(logLine)
@@ -1075,7 +1135,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func sanitizeString(s string) string {
 	const maxLength = 1000
 	if len(s) > maxLength {
-		return s[:maxLength] + "...(truncated)"
+		return s[:maxLength] + "...(省略)"
 	}
 
 	s = strings.ReplaceAll(s, "\n", " ")
@@ -1086,7 +1146,7 @@ func sanitizeString(s string) string {
 
 func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "メソッドが許可されていません。POSTメソッドを使用してください。", http.StatusMethodNotAllowed)
+		http.Error(w, "メソッドが許可されていません。POSTを使用してください。", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -1099,25 +1159,25 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 	roomID := r.FormValue("room_id")
 
 	if sampleType != "positive" && sampleType != "negative" {
-		http.Error(w, "無効な sample_type。'positive' または 'negative' を指定してください。", http.StatusBadRequest)
+		http.Error(w, "無効なsample_typeです。'positive' または 'negative' を使用してください。", http.StatusBadRequest)
 		return
 	}
 
 	if roomID == "" {
-		http.Error(w, "room_id を指定してください。", http.StatusBadRequest)
+		http.Error(w, "room_idを指定してください。", http.StatusBadRequest)
 		return
 	}
 
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		http.Error(w, "wifi_data ファイルの取得に失敗しました。", http.StatusBadRequest)
+		http.Error(w, "wifi_dataファイルの取得に失敗しました。", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		http.Error(w, "ble_data ファイルの取得に失敗しました。", http.StatusBadRequest)
+		http.Error(w, "ble_dataファイルの取得に失敗しました。", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
@@ -1132,7 +1192,7 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
-		http.Error(w, "保存先ディレクトリの作成に失敗しました。", http.StatusInternalServerError)
+		http.Error(w, "保存ディレクトリの作成に失敗しました。", http.StatusInternalServerError)
 		return
 	}
 
@@ -1144,16 +1204,16 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request) {
 	bleFilePath := filepath.Join(saveDir, bleFileName)
 
 	if err := saveUploadedFile(wifiFile, wifiFilePath); err != nil {
-		http.Error(w, "wifi_data の保存に失敗しました。", http.StatusInternalServerError)
+		http.Error(w, "wifi_dataの保存に失敗しました。", http.StatusInternalServerError)
 		return
 	}
 
 	if err := saveUploadedFile(bleFile, bleFilePath); err != nil {
-		http.Error(w, "ble_data の保存に失敗しました。", http.StatusInternalServerError)
+		http.Error(w, "ble_dataの保存に失敗しました。", http.StatusInternalServerError)
 		return
 	}
 
-	response := UploadResponse{Message: "Fingerprint data received successfully"}
+	response := UploadResponse{Message: "フィンガープリントデータを正常に受信しました"}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "レスポンスの作成に失敗しました。", http.StatusInternalServerError)
@@ -1166,11 +1226,11 @@ func main() {
 
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
-		log.Fatalf("設定ファイルの読み込みに失敗しました: %v\n", err)
+		log.Fatalf("設定ファイルの読み取りに失敗しました: %v\n", err)
 	}
 
-	mode := flag.String("mode", config.Mode, "アプリケーションの実行モード (docker または local)")
-	port := flag.String("port", config.ServerPort, "サーバを実行するポート")
+	mode := flag.String("mode", config.Mode, "アプリケーションモード (docker または local)")
+	port := flag.String("port", config.ServerPort, "サーバーポート")
 	flag.Parse()
 
 	var proxyURL, estimationURL, inquiryURL, dbConnStr string
@@ -1191,24 +1251,24 @@ func main() {
 	}
 
 	log.Printf("モード: %s", *mode)
-	log.Printf("サーバポート: %s", *port)
-	log.Printf("Proxy URL: %s", proxyURL)
-	log.Printf("Estimation URL: %s", estimationURL)
-	log.Printf("Inquiry URL: %s", inquiryURL)
+	log.Printf("サーバーポート: %s", *port)
+	log.Printf("プロキシURL: %s", proxyURL)
+	log.Printf("推定URL: %s", estimationURL)
+	log.Printf("問い合わせURL: %s", inquiryURL)
 	log.Printf("データベース接続文字列: %s", dbConnStr)
-	log.Printf("skipRegistration: %v", skipRegistration)
-	log.Printf("System URI: %s", config.Registration.SystemURI)
+	log.Printf("登録をスキップするか: %v", skipRegistration)
+	log.Printf("システムURI: %s", config.Registration.SystemURI)
 
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
-		log.Fatalf("データベースに接続できませんでした: %v\n", err)
+		log.Fatalf("データベースへの接続に失敗しました: %v\n", err)
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("データベース接続確認に失敗しました: %v\n", err)
+		log.Fatalf("データベースへのPingに失敗しました: %v\n", err)
 	}
-	log.Println("データベースに正常に接続しました。")
+	log.Println("データベースへの接続に成功しました。")
 
 	if !skipRegistration {
 		go func() {
@@ -1227,29 +1287,29 @@ func main() {
 				registerBody, err := json.Marshal(registerData)
 				if err != nil {
 					log.Printf("登録リクエストのエンコードに失敗しました: %v\n", err)
-					log.Println("登録を再試行します...")
+					log.Println("登録を再試行しています...")
 					time.Sleep(5 * time.Second)
 					continue
 				}
 
 				resp, err := http.Post(proxyURL, "application/json", bytes.NewBuffer(registerBody))
 				if err != nil {
-					log.Printf("サーバの登録エラー: %v\n", err)
-					log.Println("登録を再試行します...")
+					log.Printf("サーバー登録エラー: %v\n", err)
+					log.Println("登録を再試行しています...")
 					time.Sleep(5 * time.Second)
 					continue
 				}
 
 				if resp.StatusCode != http.StatusOK {
-					log.Printf("サーバの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
+					log.Printf("サーバーの登録に失敗しました。ステータスコード: %d\n", resp.StatusCode)
 					resp.Body.Close()
-					log.Println("登録を再試行します...")
+					log.Println("登録を再試行しています...")
 					time.Sleep(5 * time.Second)
 					continue
 				}
 
 				resp.Body.Close()
-				log.Println("サーバの登録が完了しました。")
+				log.Println("サーバーの登録が完了しました。")
 				break
 			}
 		}()
@@ -1265,7 +1325,7 @@ func main() {
 			userIDStr := parts[2]
 			userID, err := strconv.Atoi(userIDStr)
 			if err != nil {
-				http.Error(w, "無効なuser_idです", http.StatusBadRequest)
+				http.Error(w, "無効なユーザーID", http.StatusBadRequest)
 				return
 			}
 			handleUserPresenceHistory(w, r, db, userID)
@@ -1319,8 +1379,8 @@ func main() {
 
 	finalHandler := corsHandler.Handler(loggedMux)
 
-	log.Printf("ポート %s でサーバを開始します。モード: %s", *port, *mode)
+	log.Printf("ポート %s でサーバーを起動します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, finalHandler); err != nil {
-		log.Fatalf("サーバを開始できませんでした: %v\n", err)
+		log.Fatalf("サーバーの起動に失敗しました: %v\n", err)
 	}
 }
