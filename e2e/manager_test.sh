@@ -36,11 +36,9 @@ done
 
 # 環境に応じて送信先URLを設定
 if [[ "$ENV" == "ローカル環境" ]]; then
-    SUBMIT_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals/submit"
-    SERVER_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals/server"
+    BASE_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals"
 elif [[ "$ENV" == "本番環境" ]]; then
-    SUBMIT_URL="${PROD_URL}/api/signals/submit"
-    SERVER_URL="${PROD_URL}/api/signals/server"
+    BASE_URL="${PROD_URL}/api/signals"
 else
     echo "無効な環境が選択されました。スクリプトを終了します。"
     exit 1
@@ -84,22 +82,31 @@ select WIFI_FILE in "${WIFI_FILES[@]}"; do
     fi
 done
 
-echo "データを /api/signals/submit に送信しています..."
+# 送信先のエンドポイントを選択
+ENDPOINTS=(
+    "submit"
+    "server"
+)
 
-# /api/signals/submit にデータを送信します（Basic認証を追加）
+echo "データを送信するエンドポイントを選択してください:"
+select ENDPOINT in "${ENDPOINTS[@]}"; do
+    if [[ -n "$ENDPOINT" ]]; then
+        echo "選択されたエンドポイント: $ENDPOINT"
+        break
+    else
+        echo "無効な選択です。もう一度お試しください。"
+    fi
+done
+
+FULL_URL="${BASE_URL}/${ENDPOINT}"
+
+echo "データを ${FULL_URL} に送信しています..."
+
+# 選択されたエンドポイントにデータを送信します（Basic認証を追加）
 RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
     -F "ble_data=@$BLE_FILE" \
     -F "wifi_data=@$WIFI_FILE" \
-    "$SUBMIT_URL")
+    "$FULL_URL")
 echo "サーバからのレスポンス: $RESPONSE"
 
-echo "データを /api/signals/server に送信しています..."
-
-# /api/signals/server にデータを送信します（Basic認証を追加）
-RESPONSE=$(curl -s -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
-    -F "ble_data=@$BLE_FILE" \
-    -F "wifi_data=@$WIFI_FILE" \
-    "$SERVER_URL")
-echo "サーバからのレスポンス: $RESPONSE"
-
-echo "テストが完了しました。"
+echo "送信が完了しました。"
