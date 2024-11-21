@@ -20,7 +20,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Config 設定ファイルの構造体
 type Config struct {
 	Database struct {
 		ConnStr string `toml:"conn_str"`
@@ -30,31 +29,26 @@ type Config struct {
 	} `toml:"server"`
 }
 
-// RegisterRequest 連合登録リクエストの構造体
 type RegisterRequest struct {
-	Scheme string `json:"scheme"` // 必須: "http" または "https"
-	Host   string `json:"host"`   // 必須: ホスト名またはIPアドレス
-	Port   int    `json:"port"`   // オプション: ポート番号
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
 }
 
-// RegisterResponse 連合登録レスポンスの構造体
 type RegisterResponse struct {
 	Message string `json:"message"`
 }
 
-// InquiryRequest 照会リクエストの構造体
 type InquiryRequest struct {
 	WifiData           string  `json:"wifi_data"`
 	BleData            string  `json:"ble_data"`
 	PresenceConfidence float64 `json:"percentage_processed"`
 }
 
-// OrganizationResponse 組織からのレスポンスの構造体
 type OrganizationResponse struct {
 	PercentageProcessed float64 `json:"percentage_processed"`
 }
 
-// InquiryResponse クライアントへのレスポンスの構造体
 type InquiryResponse struct {
 	ServerConfidence float64 `json:"percentage_processed"`
 	Success          bool    `json:"success"`
@@ -103,7 +97,6 @@ func main() {
 	}
 }
 
-// registerHandler /api/register エンドポイントのハンドラ
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	log.Printf("[REQUEST_ID: %s] /api/register エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
@@ -119,7 +112,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleRegisterPost POST /api/register の処理
 func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string) {
 	log.Printf("[REQUEST_ID: %s] POST /api/register リクエストの処理を開始します。", requestID)
 
@@ -131,21 +123,18 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string
 	}
 	log.Printf("[REQUEST_ID: %s] リクエスト内容: %+v", requestID, req)
 
-	// スキームのバリデーション
 	if req.Scheme != "http" && req.Scheme != "https" {
 		log.Printf("[REQUEST_ID: %s][ERROR] 不正なスキーム: %s", requestID, req.Scheme)
 		http.Error(w, "スキームは 'http' または 'https' でなければなりません", http.StatusBadRequest)
 		return
 	}
 
-	// 必須フィールドのチェック
 	if req.Host == "" {
 		log.Printf("[REQUEST_ID: %s][ERROR] ホストが指定されていません", requestID)
 		http.Error(w, "ホストは必須です", http.StatusBadRequest)
 		return
 	}
 
-	// system_uri の構築
 	systemURI := fmt.Sprintf("%s://%s", req.Scheme, req.Host)
 	if req.Port != 0 {
 		systemURI = fmt.Sprintf("%s:%d", systemURI, req.Port)
@@ -186,7 +175,6 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string
 	log.Printf("[REQUEST_ID: %s] POST /api/register レスポンスをクライアントに送信しました。レスポンス内容: %+v", requestID, resp)
 }
 
-// handleRegisterGet GET /api/register の処理
 func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string) {
 	log.Printf("[REQUEST_ID: %s] GET /api/register リクエストの処理を開始します。", requestID)
 
@@ -234,6 +222,7 @@ func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string)
 
 	log.Printf("[REQUEST_ID: %s] GET /api/register レスポンスをクライアントに送信しました。組織数: %d", requestID, len(organizations))
 }
+
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	log.Printf("[REQUEST_ID: %s] /api/inquiry エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
@@ -251,7 +240,6 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CSVデータのレコード数をログに記録
 	wifiRecordsCount := 0
 	bleRecordsCount := 0
 
@@ -269,7 +257,6 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[REQUEST_ID: %s] 照会リクエストを受信しました。WiFiレコード数: %d, BLEレコード数: %d, PresenceConfidence: %.2f", requestID, wifiRecordsCount, bleRecordsCount, inquiryReq.PresenceConfidence)
 
-	// CSVデータをパース
 	wifiData, err := parseCSVFromString(inquiryReq.WifiData)
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] WiFi CSV の解析エラー: %v", requestID, err)
@@ -338,7 +325,6 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 			percentage, err := querySystem(systemURI, port, wifiData, bleData, requestID)
 			if err != nil {
 				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, port, err)
-				// エラーの場合は0を返す
 				responseChan <- 0
 				return
 			}
@@ -386,11 +372,9 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 	url := fmt.Sprintf("%s:%d/api/signals/server", systemURI, port)
 	log.Printf("[REQUEST_ID: %s] クエリ送信先URL: %s", requestID, url)
 
-	// CSVデータを文字列に変換
 	wifiCSV := csvToString(wifiData)
 	bleCSV := csvToString(bleData)
 
-	// バッファとマルチパートライターを準備
 	var requestBody bytes.Buffer
 	writer := multipart.NewWriter(&requestBody)
 
@@ -403,7 +387,6 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 		return 0, fmt.Errorf("WiFiデータのコピーに失敗しました: %v", err)
 	}
 
-	// BLEデータを追加
 	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
 	if err != nil {
 		return 0, fmt.Errorf("BLEデータのフォームファイル作成に失敗しました: %v", err)
@@ -413,12 +396,10 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 		return 0, fmt.Errorf("BLEデータのコピーに失敗しました: %v", err)
 	}
 
-	// マルチパートデータの終了
 	if err := writer.Close(); err != nil {
 		return 0, fmt.Errorf("マルチパートライターのクローズに失敗しました: %v", err)
 	}
 
-	// POSTリクエストの作成
 	req, err := http.NewRequest("POST", url, &requestBody)
 	if err != nil {
 		return 0, fmt.Errorf("リクエストの作成に失敗しました: %v", err)
@@ -427,7 +408,6 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 
 	log.Printf("[REQUEST_ID: %s] クエリ用リクエストヘッダー: %v", requestID, req.Header)
 
-	// リクエストの送信
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("リクエスト送信エラー: %v", err)
@@ -450,7 +430,6 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 	return int(orgResp.PercentageProcessed), nil
 }
 
-// csvToString 二次元スライスをCSV形式の文字列に変換する関数
 func csvToString(data [][]string) string {
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
@@ -461,7 +440,6 @@ func csvToString(data [][]string) string {
 	return buf.String()
 }
 
-// parseCSVFromString 文字列からCSVをパースして二次元スライスに変換する関数
 func parseCSVFromString(data string) ([][]string, error) {
 	reader := csv.NewReader(strings.NewReader(data))
 	records, err := reader.ReadAll()
@@ -471,7 +449,6 @@ func parseCSVFromString(data string) ([][]string, error) {
 	return records, nil
 }
 
-// cleanupCache 定期的にキャッシュをクリーンアップする関数
 func cleanupCache() {
 	for {
 		time.Sleep(1 * time.Hour)
