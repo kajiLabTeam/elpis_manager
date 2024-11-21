@@ -1532,7 +1532,7 @@ func main() {
 	loggedMux := loggingMiddleware(mux)
 
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "https://elpis.kajilab.dev"},
+		AllowedOrigins:   []string{"http://localhost:5173", "https://elpis.kajilab.dev", "https://elpis-a.kajilab.dev", "https://elpis-b.kajilab.dev"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
