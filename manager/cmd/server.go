@@ -1272,52 +1272,57 @@ func sanitizeString(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	return s
 }
-
 func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "メソッドが許可されていません。POSTを使用してください。", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed. Please use POST.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		logError(ctx, "リクエストの解析に失敗しました: %v", err)
-		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
+		logError(ctx, "Failed to parse multipart/form-data: %v", err)
+		http.Error(w, "Failed to parse multipart/form-data", http.StatusBadRequest)
 		return
 	}
 
-	sampleType := r.FormValue("sample_type")
-	roomID := r.FormValue("room_id")
-
-	if sampleType != "positive" && sampleType != "negative" {
-		logError(ctx, "無効なsample_typeです: %s", sampleType)
-		http.Error(w, "無効なsample_typeです。'positive' または 'negative' を使用してください。", http.StatusBadRequest)
+	roomIDStr := r.FormValue("room_id")
+	if roomIDStr == "" {
+		logError(ctx, "room_id is not specified")
+		http.Error(w, "Please specify room_id.", http.StatusBadRequest)
 		return
 	}
 
-	if roomID == "" {
-		logError(ctx, "room_idが指定されていません")
-		http.Error(w, "room_idを指定してください。", http.StatusBadRequest)
+	roomID, err := strconv.Atoi(roomIDStr)
+	if err != nil {
+		logError(ctx, "Invalid room_id: %v", err)
+		http.Error(w, "room_id must be an integer.", http.StatusBadRequest)
 		return
+	}
+
+	var sampleType string
+	if roomID == 0 {
+		sampleType = "negative"
+	} else {
+		sampleType = "positive"
 	}
 
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		logError(ctx, "wifi_dataファイルの取得に失敗しました: %v", err)
-		http.Error(w, "wifi_dataファイルの取得に失敗しました。", http.StatusBadRequest)
+		logError(ctx, "Failed to retrieve wifi_data file: %v", err)
+		http.Error(w, "Failed to retrieve wifi_data file.", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		logError(ctx, "ble_dataファイルの取得に失敗しました: %v", err)
-		http.Error(w, "ble_dataファイルの取得に失敗しました。", http.StatusBadRequest)
+		logError(ctx, "Failed to retrieve ble_data file: %v", err)
+		http.Error(w, "Failed to retrieve ble_data file.", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
 
 	baseDir := "./estimation"
-	sanitizedRoomID := filepath.Base(roomID)
+	sanitizedRoomID := filepath.Base(roomIDStr)
 	var saveDir string
 	if sampleType == "positive" {
 		saveDir = filepath.Join(baseDir, "positive_samples", sanitizedRoomID)
@@ -1326,8 +1331,8 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	}
 
 	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
-		logError(ctx, "保存ディレクトリの作成に失敗しました: %v", err)
-		http.Error(w, "保存ディレクトリの作成に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to create save directory: %v", err)
+		http.Error(w, "Failed to create save directory.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1338,27 +1343,28 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	wifiFilePath := filepath.Join(saveDir, wifiFileName)
 	bleFilePath := filepath.Join(saveDir, bleFileName)
 
+	// ファイルの保存
 	if err := saveUploadedFile(ctx, wifiFile, wifiFilePath); err != nil {
-		logError(ctx, "wifi_dataの保存に失敗しました: %v", err)
-		http.Error(w, "wifi_dataの保存に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to save wifi_data: %v", err)
+		http.Error(w, "Failed to save wifi_data.", http.StatusInternalServerError)
 		return
 	}
 
 	if err := saveUploadedFile(ctx, bleFile, bleFilePath); err != nil {
-		logError(ctx, "ble_dataの保存に失敗しました: %v", err)
-		http.Error(w, "ble_dataの保存に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to save ble_data: %v", err)
+		http.Error(w, "Failed to save ble_data.", http.StatusInternalServerError)
 		return
 	}
 
-	response := UploadResponse{Message: "フィンガープリントデータを正常に受信しました"}
+	response := UploadResponse{Message: "Fingerprint data received successfully"}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logError(ctx, "フィンガープリント収集JSONレスポンスのエンコードに失敗しました: %v", err)
-		http.Error(w, "レスポンスの作成に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to encode JSON response: %v", err)
+		http.Error(w, "Failed to create response.", http.StatusInternalServerError)
 		return
 	}
 
-	logInfo(ctx, "フィンガープリントデータを正常に受信しました。サンプルタイプ: %s, RoomID: %s", sampleType, roomID)
+	logInfo(ctx, "Fingerprint data received successfully. Sample type: %s, RoomID: %s", sampleType, roomIDStr)
 }
 
 func main() {
