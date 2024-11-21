@@ -6,7 +6,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -97,36 +100,42 @@ func main() {
 
 // registerHandler /api/register エンドポイントのハンドラ
 func registerHandler(w http.ResponseWriter, r *http.Request) {
+	requestID := uuid.New().String()
+	log.Printf("[REQUEST_ID: %s] /api/register エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
+
 	switch r.Method {
 	case http.MethodPost:
-		handleRegisterPost(w, r)
+		handleRegisterPost(w, r, requestID)
 	case http.MethodGet:
-		handleRegisterGet(w, r)
+		handleRegisterGet(w, r, requestID)
 	default:
-		log.Printf("[WARN] 許可されていないメソッド: %s, パス: %s", r.Method, r.URL.Path)
+		log.Printf("[REQUEST_ID: %s] 許可されていないメソッド: %s, パス: %s", requestID, r.Method, r.URL.Path)
 		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
 	}
 }
 
 // handleRegisterPost POST /api/register の処理
-func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
+func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string) {
+	log.Printf("[REQUEST_ID: %s] POST /api/register リクエストの処理を開始します。", requestID)
+
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[ERROR] JSONデコードエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONデコードエラー: %v", requestID, err)
 		http.Error(w, "リクエストの形式が正しくありません", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[REQUEST_ID: %s] リクエスト内容: %+v", requestID, req)
 
 	// スキームのバリデーション
 	if req.Scheme != "http" && req.Scheme != "https" {
-		log.Printf("[ERROR] 不正なスキーム: %s", req.Scheme)
+		log.Printf("[REQUEST_ID: %s][ERROR] 不正なスキーム: %s", requestID, req.Scheme)
 		http.Error(w, "スキームは 'http' または 'https' でなければなりません", http.StatusBadRequest)
 		return
 	}
 
 	// 必須フィールドのチェック
 	if req.Host == "" {
-		log.Printf("[ERROR] ホストが指定されていません")
+		log.Printf("[REQUEST_ID: %s][ERROR] ホストが指定されていません", requestID)
 		http.Error(w, "ホストは必須です", http.StatusBadRequest)
 		return
 	}
@@ -137,7 +146,7 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		systemURI = fmt.Sprintf("%s:%d", systemURI, req.Port)
 	}
 
-	log.Printf("[INFO] /api/register POST リクエスト - SystemURI: %s", systemURI)
+	log.Printf("[REQUEST_ID: %s] 構築された SystemURI: %s", requestID, systemURI)
 
 	query := `
         INSERT INTO organizations (api_endpoint, port_number, last_updated)
@@ -145,11 +154,18 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
         ON CONFLICT (api_endpoint)
         DO UPDATE SET port_number = EXCLUDED.port_number, last_updated = CURRENT_TIMESTAMP
     `
-	_, err := db.Exec(query, req.Scheme+"://"+req.Host, req.Port)
+	result, err := db.Exec(query, req.Scheme+"://"+req.Host, req.Port)
 	if err != nil {
-		log.Printf("[ERROR] データベースエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] データベースエラー: %v", requestID, err)
 		http.Error(w, "内部サーバーエラーが発生しました", http.StatusInternalServerError)
 		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] RowsAffected の取得に失敗しました: %v", requestID, err)
+	} else {
+		log.Printf("[REQUEST_ID: %s] データベース更新成功。影響を受けた行数: %d", requestID, rowsAffected)
 	}
 
 	resp := RegisterResponse{
@@ -157,20 +173,22 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("[ERROR] JSONエンコードエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONエンコードエラー: %v", requestID, err)
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[INFO] /api/register POST レスポンス - Message: %s", resp.Message)
+	log.Printf("[REQUEST_ID: %s] POST /api/register レスポンスをクライアントに送信しました。レスポンス内容: %+v", requestID, resp)
 }
 
 // handleRegisterGet GET /api/register の処理
-func handleRegisterGet(w http.ResponseWriter, _ *http.Request) {
+func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string) {
+	log.Printf("[REQUEST_ID: %s] GET /api/register リクエストの処理を開始します。", requestID)
+
 	query := `SELECT api_endpoint, port_number, last_updated FROM organizations`
 	rows, err := db.Query(query)
 	if err != nil {
-		log.Printf("[ERROR] データベースクエリエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] データベースクエリエラー: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("データベースクエリエラー: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -186,64 +204,91 @@ func handleRegisterGet(w http.ResponseWriter, _ *http.Request) {
 	for rows.Next() {
 		var org Organization
 		if err := rows.Scan(&org.APIEndpoint, &org.PortNumber, &org.LastUpdated); err != nil {
-			log.Printf("[ERROR] 行のスキャンエラー: %v", err)
+			log.Printf("[REQUEST_ID: %s][ERROR] 行のスキャンエラー: %v", requestID, err)
 			http.Error(w, fmt.Sprintf("行のスキャンエラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 		organizations = append(organizations, org)
+		log.Printf("[REQUEST_ID: %s] 取得した組織情報: %+v", requestID, org)
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("[ERROR] 行のエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] 行のエラー: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("行のエラー: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[REQUEST_ID: %s] 取得した組織数: %d", requestID, len(organizations))
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(organizations); err != nil {
-		log.Printf("[ERROR] JSONエンコードエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONエンコードエラー: %v", requestID, err)
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[INFO] /api/register GET レスポンス - 組織数: %d", len(organizations))
+	log.Printf("[REQUEST_ID: %s] GET /api/register レスポンスをクライアントに送信しました。組織数: %d", requestID, len(organizations))
 }
 
 // inquiryHandler /api/inquiry エンドポイントのハンドラ
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
+	requestID := uuid.New().String()
+	log.Printf("[REQUEST_ID: %s] /api/inquiry エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
+
 	if r.Method != http.MethodPost {
-		log.Printf("[WARN] 許可されていないメソッド: %s, パス: %s", r.Method, r.URL.Path)
+		log.Printf("[REQUEST_ID: %s][WARN] 許可されていないメソッド: %s, パス: %s", requestID, r.Method, r.URL.Path)
 		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var inquiryReq InquiryRequest
 	if err := json.NewDecoder(r.Body).Decode(&inquiryReq); err != nil {
-		log.Printf("[ERROR] JSONデコードエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONデコードエラー: %v", requestID, err)
 		http.Error(w, "リクエストの形式が正しくありません", http.StatusBadRequest)
 		return
 	}
 
+	// CSVデータをログに出力しないように修正
+	// 代わりに、CSVデータのレコード数のみをログに記録
+	wifiRecordsCount := 0
+	bleRecordsCount := 0
+
+	// パース前のCSVデータのレコード数を計算
+	wifiReader := csv.NewReader(strings.NewReader(inquiryReq.WifiData))
+	wifiRecords, err := wifiReader.ReadAll()
+	if err == nil {
+		wifiRecordsCount = len(wifiRecords)
+	}
+
+	bleReader := csv.NewReader(strings.NewReader(inquiryReq.BleData))
+	bleRecords, err := bleReader.ReadAll()
+	if err == nil {
+		bleRecordsCount = len(bleRecords)
+	}
+
+	log.Printf("[REQUEST_ID: %s] 照会リクエストを受信しました。WiFiレコード数: %d, BLEレコード数: %d, PresenceConfidence: %.2f", requestID, wifiRecordsCount, bleRecordsCount, inquiryReq.PresenceConfidence)
+
+	// CSVデータを実際にパースする
 	wifiData, err := parseCSVFromString(inquiryReq.WifiData)
 	if err != nil {
-		log.Printf("[ERROR] WiFi CSV の解析エラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] WiFi CSV の解析エラー: %v", requestID, err)
 		http.Error(w, "WiFi CSV の解析エラー", http.StatusBadRequest)
 		return
 	}
 
 	bleData, err := parseCSVFromString(inquiryReq.BleData)
 	if err != nil {
-		log.Printf("[ERROR] BLE CSV の解析エラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] BLE CSV の解析エラー: %v", requestID, err)
 		http.Error(w, "BLE CSV の解析エラー", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[INFO] /api/inquiry POST リクエスト - WiFiレコード数: %d, BLEレコード数: %d", len(wifiData), len(bleData))
+	log.Printf("[REQUEST_ID: %s] パース完了 - WiFiレコード数: %d, BLEレコード数: %d", requestID, len(wifiData), len(bleData))
 
 	query := `SELECT api_endpoint, port_number FROM organizations`
 	rows, err := db.Query(query)
 	if err != nil {
-		log.Printf("[ERROR] データベースクエリエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] データベースクエリエラー: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("データベースクエリエラー: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -258,21 +303,24 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var org Organization
 		if err := rows.Scan(&org.APIEndpoint, &org.PortNumber); err != nil {
-			log.Printf("[ERROR] 行のスキャンエラー: %v", err)
+			log.Printf("[REQUEST_ID: %s][ERROR] 行のスキャンエラー: %v", requestID, err)
 			http.Error(w, fmt.Sprintf("行のスキャンエラー: %v", err), http.StatusInternalServerError)
 			return
 		}
 		organizations = append(organizations, org)
+		log.Printf("[REQUEST_ID: %s] 取得した組織情報: %+v", requestID, org)
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("[ERROR] 行のエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] 行のエラー: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("行のエラー: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[REQUEST_ID: %s] 取得した組織数: %d", requestID, len(organizations))
+
 	if len(organizations) == 0 {
-		log.Printf("[WARN] 組織情報が存在しません")
+		log.Printf("[REQUEST_ID: %s][WARN] 組織情報が存在しません", requestID)
 		http.Error(w, "組織情報が存在しません", http.StatusNotFound)
 		return
 	}
@@ -285,9 +333,10 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(systemURI string, port int) {
 			defer wg.Done()
-			percentage, err := querySystem(systemURI, port, wifiData, bleData)
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d へのクエリを開始します。", requestID, systemURI, port)
+			percentage, err := querySystem(systemURI, port, wifiData, bleData, requestID)
 			if err != nil {
-				log.Printf("[ERROR] 組織 %s:%d へのクエリシステムエラー: %v", systemURI, port, err)
+				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, port, err)
 				responseChan <- InquiryResponse{
 					ServerConfidence: 0,
 					Success:          false,
@@ -295,6 +344,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - ServerConfidence: %.2f%%", requestID, systemURI, port, float64(percentage))
 			responseChan <- InquiryResponse{
 				ServerConfidence: float64(percentage),
 				Success:          true,
@@ -318,45 +368,78 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(finalResp); err != nil {
-		log.Printf("[ERROR] JSONエンコードエラー: %v", err)
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONエンコードエラー: %v", requestID, err)
 		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[INFO] /api/inquiry レスポンス - Success: %t, ServerConfidence: %.2f%%", finalResp.Success, finalResp.ServerConfidence)
+	log.Printf("[REQUEST_ID: %s] /api/inquiry レスポンスをクライアントに送信しました。レスポンス内容: %+v", requestID, finalResp)
 
 	counterMutex.Lock()
-	log.Printf("[DEBUG] querySystem の呼び出し回数: %d", queryCounter)
+	log.Printf("[REQUEST_ID: %s][DEBUG] querySystem の呼び出し回数: %d", requestID, queryCounter)
 	counterMutex.Unlock()
 }
 
-// querySystem 他の照会サーバに問い合わせる関数
-func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int, error) {
+func querySystem(systemURI string, port int, wifiData, bleData [][]string, requestID string) (int, error) {
 	counterMutex.Lock()
 	queryCounter++
+	currentCount := queryCounter
 	counterMutex.Unlock()
 
-	url := fmt.Sprintf("%s:%d/api/signals/server", systemURI, port)
+	log.Printf("[REQUEST_ID: %s][DEBUG] querySystem 呼び出し回数: %d", requestID, currentCount)
 
+	url := fmt.Sprintf("%s:%d/api/signals/server", systemURI, port)
+	log.Printf("[REQUEST_ID: %s] クエリ送信先URL: %s", requestID, url)
+
+	// 一時的にCSVファイルを作成
 	wifiCSV := csvToString(wifiData)
 	bleCSV := csvToString(bleData)
 
-	inquiryReq := InquiryRequest{
-		WifiData:           wifiCSV,
-		BleData:            bleCSV,
-		PresenceConfidence: 0,
-	}
+	// バッファとマルチパートライターを準備
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
 
-	reqBody, err := json.Marshal(inquiryReq)
+	wifiPart, err := writer.CreateFormFile("wifi_data", "wifi_data.csv")
 	if err != nil {
-		return 0, fmt.Errorf("照会リクエストのエンコードに失敗しました: %v", err)
+		return 0, fmt.Errorf("WiFiデータのフォームファイル作成に失敗しました: %v", err)
+	}
+	_, err = io.Copy(wifiPart, bytes.NewBufferString(wifiCSV))
+	if err != nil {
+		return 0, fmt.Errorf("WiFiデータのコピーに失敗しました: %v", err)
 	}
 
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(reqBody))
+	// BLEデータを追加
+	blePart, err := writer.CreateFormFile("ble_data", "ble_data.csv")
+	if err != nil {
+		return 0, fmt.Errorf("BLEデータのフォームファイル作成に失敗しました: %v", err)
+	}
+	_, err = io.Copy(blePart, bytes.NewBufferString(bleCSV))
+	if err != nil {
+		return 0, fmt.Errorf("BLEデータのコピーに失敗しました: %v", err)
+	}
+
+	// マルチパートデータの終了
+	if err := writer.Close(); err != nil {
+		return 0, fmt.Errorf("マルチパートライターのクローズに失敗しました: %v", err)
+	}
+
+	// POSTリクエストの作成
+	req, err := http.NewRequest("POST", url, &requestBody)
+	if err != nil {
+		return 0, fmt.Errorf("リクエストの作成に失敗しました: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	log.Printf("[REQUEST_ID: %s] クエリ用リクエストヘッダー: %v", requestID, req.Header)
+
+	// リクエストの送信
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("リクエスト送信エラー: %v", err)
 	}
 	defer resp.Body.Close()
+
+	log.Printf("[REQUEST_ID: %s] クエリ送信後のレスポンスステータス: %s", requestID, resp.Status)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
@@ -366,6 +449,8 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int,
 	if err := json.NewDecoder(resp.Body).Decode(&signalResp); err != nil {
 		return 0, fmt.Errorf("レスポンスのパースエラー: %v", err)
 	}
+
+	log.Printf("[REQUEST_ID: %s] 照会サーバからのレスポンス内容: %+v", requestID, signalResp)
 
 	if !signalResp.Success {
 		return 0, fmt.Errorf("照会サーバでの処理に失敗しました: %s", signalResp.Message)
@@ -399,10 +484,11 @@ func parseCSVFromString(data string) ([][]string, error) {
 func cleanupCache() {
 	for {
 		time.Sleep(1 * time.Hour)
+		log.Printf("[CACHE_CLEANUP] キャッシュのクリーンアップを開始します。")
 		query := `DELETE FROM organizations WHERE last_updated < NOW() - INTERVAL '24 hours' RETURNING api_endpoint`
 		rows, err := db.Query(query)
 		if err != nil {
-			log.Printf("[ERROR] キャッシュのクリーンアップエラー: %v", err)
+			log.Printf("[CACHE_CLEANUP][ERROR] キャッシュのクリーンアップエラー: %v", err)
 			continue
 		}
 
@@ -410,15 +496,14 @@ func cleanupCache() {
 		for rows.Next() {
 			var endpoint string
 			if err := rows.Scan(&endpoint); err != nil {
-				log.Printf("[ERROR] 削除されたエンドポイントのスキャンエラー: %v", err)
+				log.Printf("[CACHE_CLEANUP][ERROR] 削除されたエンドポイントのスキャンエラー: %v", err)
 				continue
 			}
 			deletedEndpoints = append(deletedEndpoints, endpoint)
+			log.Printf("[CACHE_CLEANUP] 削除されたエンドポイント: %s", endpoint)
 		}
 		rows.Close()
 
-		for _, endpoint := range deletedEndpoints {
-			log.Printf("[INFO] 期限切れのキャッシュエントリを削除しました: %s", endpoint)
-		}
+		log.Printf("[CACHE_CLEANUP] キャッシュのクリーンアップが完了しました。削除されたエンドポイント数: %d", len(deletedEndpoints))
 	}
 }
