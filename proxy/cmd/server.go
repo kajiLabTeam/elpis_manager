@@ -336,7 +336,7 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string) (int,
 	queryCounter++
 	counterMutex.Unlock()
 
-	url := fmt.Sprintf("http://%s:%d/api/signals/server", systemURI, port)
+	url := fmt.Sprintf("%s:%d/api/signals/server", systemURI, port)
 
 	wifiCSV := csvToString(wifiData)
 	bleCSV := csvToString(bleData)
