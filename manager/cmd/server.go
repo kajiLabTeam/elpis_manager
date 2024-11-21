@@ -155,7 +155,7 @@ type InquiryRequest struct {
 }
 
 type InquiryResponse struct {
-	ServerConfidence float64 `json:"server_confidence"`
+	ServerConfidence float64 `json:"percentage_processed"`
 }
 
 type BeaconSignal struct {

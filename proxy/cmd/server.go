@@ -46,12 +46,17 @@ type RegisterResponse struct {
 type InquiryRequest struct {
 	WifiData           string  `json:"wifi_data"`
 	BleData            string  `json:"ble_data"`
-	PresenceConfidence float64 `json:"presence_confidence"`
+	PresenceConfidence float64 `json:"percentage_processed"`
 }
 
-// InquiryResponse 照会レスポンスの構造体
+// OrganizationResponse 組織からのレスポンスの構造体
+type OrganizationResponse struct {
+	PercentageProcessed float64 `json:"percentage_processed"`
+}
+
+// InquiryResponse クライアントへのレスポンスの構造体
 type InquiryResponse struct {
-	ServerConfidence float64 `json:"server_confidence"`
+	ServerConfidence float64 `json:"percentage_processed"`
 	Success          bool    `json:"success"`
 	Message          string  `json:"message,omitempty"`
 }
@@ -229,8 +234,6 @@ func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string)
 
 	log.Printf("[REQUEST_ID: %s] GET /api/register レスポンスをクライアントに送信しました。組織数: %d", requestID, len(organizations))
 }
-
-// inquiryHandler /api/inquiry エンドポイントのハンドラ
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	log.Printf("[REQUEST_ID: %s] /api/inquiry エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
@@ -248,12 +251,10 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CSVデータをログに出力しないように修正
-	// 代わりに、CSVデータのレコード数のみをログに記録
+	// CSVデータのレコード数をログに記録
 	wifiRecordsCount := 0
 	bleRecordsCount := 0
 
-	// パース前のCSVデータのレコード数を計算
 	wifiReader := csv.NewReader(strings.NewReader(inquiryReq.WifiData))
 	wifiRecords, err := wifiReader.ReadAll()
 	if err == nil {
@@ -268,7 +269,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[REQUEST_ID: %s] 照会リクエストを受信しました。WiFiレコード数: %d, BLEレコード数: %d, PresenceConfidence: %.2f", requestID, wifiRecordsCount, bleRecordsCount, inquiryReq.PresenceConfidence)
 
-	// CSVデータを実際にパースする
+	// CSVデータをパース
 	wifiData, err := parseCSVFromString(inquiryReq.WifiData)
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] WiFi CSV の解析エラー: %v", requestID, err)
@@ -327,7 +328,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	maxPercentage := 0
 	var wg sync.WaitGroup
-	responseChan := make(chan InquiryResponse, len(organizations))
+	responseChan := make(chan int, len(organizations))
 
 	for _, org := range organizations {
 		wg.Add(1)
@@ -337,27 +338,21 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 			percentage, err := querySystem(systemURI, port, wifiData, bleData, requestID)
 			if err != nil {
 				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, port, err)
-				responseChan <- InquiryResponse{
-					ServerConfidence: 0,
-					Success:          false,
-					Message:          err.Error(),
-				}
+				// エラーの場合は0を返す
+				responseChan <- 0
 				return
 			}
-			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - ServerConfidence: %.2f%%", requestID, systemURI, port, float64(percentage))
-			responseChan <- InquiryResponse{
-				ServerConfidence: float64(percentage),
-				Success:          true,
-			}
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - PercentageProcessed: %.2f%%", requestID, systemURI, port, float64(percentage))
+			responseChan <- percentage
 		}(org.APIEndpoint, org.PortNumber)
 	}
 
 	wg.Wait()
 	close(responseChan)
 
-	for resp := range responseChan {
-		if resp.Success && int(resp.ServerConfidence) > maxPercentage {
-			maxPercentage = int(resp.ServerConfidence)
+	for percentage := range responseChan {
+		if percentage > maxPercentage {
+			maxPercentage = percentage
 		}
 	}
 
@@ -391,7 +386,7 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 	url := fmt.Sprintf("%s:%d/api/signals/server", systemURI, port)
 	log.Printf("[REQUEST_ID: %s] クエリ送信先URL: %s", requestID, url)
 
-	// 一時的にCSVファイルを作成
+	// CSVデータを文字列に変換
 	wifiCSV := csvToString(wifiData)
 	bleCSV := csvToString(bleData)
 
@@ -442,21 +437,17 @@ func querySystem(systemURI string, port int, wifiData, bleData [][]string, reque
 	log.Printf("[REQUEST_ID: %s] クエリ送信後のレスポンスステータス: %s", requestID, resp.Status)
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("照会サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
+		return 0, fmt.Errorf("滞在管理サーバからの応答が不正です。ステータスコード: %d", resp.StatusCode)
 	}
 
-	var signalResp InquiryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&signalResp); err != nil {
+	var orgResp OrganizationResponse
+	if err := json.NewDecoder(resp.Body).Decode(&orgResp); err != nil {
 		return 0, fmt.Errorf("レスポンスのパースエラー: %v", err)
 	}
 
-	log.Printf("[REQUEST_ID: %s] 照会サーバからのレスポンス内容: %+v", requestID, signalResp)
+	log.Printf("[REQUEST_ID: %s] 滞在管理サーバからのレスポンス内容: %+v", requestID, orgResp)
 
-	if !signalResp.Success {
-		return 0, fmt.Errorf("照会サーバでの処理に失敗しました: %s", signalResp.Message)
-	}
-
-	return int(signalResp.ServerConfidence), nil
+	return int(orgResp.PercentageProcessed), nil
 }
 
 // csvToString 二次元スライスをCSV形式の文字列に変換する関数
