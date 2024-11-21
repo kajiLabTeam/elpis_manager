@@ -271,6 +271,8 @@ func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wif
 	}
 	req.Header.Set("Content-Type", writerMultipart.FormDataContentType())
 
+	logInfo(ctx, "推定サーバーへのリクエストの送信")
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -289,6 +291,8 @@ func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wif
 		logError(ctx, "推定サーバーのレスポンスの解析に失敗しました: %v", err)
 		return 0, fmt.Errorf("推定サーバーのレスポンスの解析に失敗しました: %v", err)
 	}
+
+	logInfo(ctx, "推定サーバーからのレスポンス内容: %+v", predictionResp)
 
 	percentageStr := strings.TrimSpace(strings.TrimSuffix(predictionResp.PredictedPercentage, "%"))
 	percentage, err := strconv.ParseFloat(percentageStr, 64)
@@ -540,6 +544,8 @@ func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFi
 		return 0, fmt.Errorf("問い合わせリクエストのエンコードに失敗しました: %v", err)
 	}
 
+	logInfo(ctx, "問い合わせサーバーに送信")
+
 	resp, err := http.Post(inquiryURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		logError(ctx, "問い合わせサーバーへのリクエストの送信に失敗しました: %v", err)
@@ -557,6 +563,8 @@ func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFi
 		logError(ctx, "問い合わせサーバーのレスポンスの解析に失敗しました: %v", err)
 		return 0, fmt.Errorf("問い合わせサーバーのレスポンスの解析に失敗しました: %v", err)
 	}
+
+	logInfo(ctx, "問い合わせサーバーからのレスポンス内容: %+v", inquiryResp)
 
 	logInfo(ctx, "問い合わせ信頼度を受信しました: %.2f", inquiryResp.ServerConfidence)
 
@@ -766,7 +774,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 	bleFileInfo, err := os.Stat(bleFilePath)
 	if err != nil {
 		logError(ctx, "BLEデータの検証に失敗しました: %v", err)
-		http.Error(w, "BLEデータの検証に失敗しました", http.StatusInternalServerError)
+		http.Error(w, "BLEデータファイルの検証に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
