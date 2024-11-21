@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -145,7 +146,7 @@ type PredictionResponse struct {
 }
 
 type EstimationServerResponse struct {
-	PercentageProcessed float64 `json:"percentage_processed"`
+	PercentageProcessed int `json:"percentage_processed"`
 }
 
 type InquiryRequest struct {
@@ -305,7 +306,6 @@ func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wif
 
 	return percentage, nil
 }
-
 func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, estimationURL string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "メソッドが許可されていません。POSTを使用してください。", http.StatusMethodNotAllowed)
@@ -354,13 +354,15 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 
 	percentage, err := forwardFilesToEstimationServer(ctx, tempBleFilePath, tempWifiFilePath, estimationURL)
 	if err != nil {
-		logError(ctx, "推定サーバーへのファイル転送に失敗しました: %v", err)
-		http.Error(w, fmt.Sprintf("推定サーバーエラー: %v", err), http.StatusInternalServerError)
+		logError(ctx, "推定サーバーへの転送エラー: %v", err)
+		http.Error(w, fmt.Sprintf("推定サーバーへの転送エラー: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	percentageInt := int(math.Round(percentage))
+
 	response := EstimationServerResponse{
-		PercentageProcessed: percentage,
+		PercentageProcessed: percentageInt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
