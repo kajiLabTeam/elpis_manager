@@ -84,8 +84,8 @@ interface UserOption {
 const App: React.FC = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const storedServerUrl = isDevelopment
-    ? localStorage.getItem('serverUrl') || "http://localhost:8010"
-    : "https://elpis-m1.kajilab.dev";
+    ? localStorage.getItem('serverUrl') || "http://localhost:8011"
+    : "https://elpis-m2.kajilab.dev";
 
   // ユーザーIDをステートとして管理（初期値は1）
   const [userId, setUserId] = useState<number>(1);
@@ -104,8 +104,8 @@ const App: React.FC = () => {
 
   // サーバーURLの選択肢
   const serverOptions = [
-    { label: "本番環境", value: "https://elpis-m1.kajilab.dev" },
-    { label: "開発環境", value: "http://localhost:8010" },
+    { label: "本番環境", value: "https://elpis-m2.kajilab.dev" },
+    { label: "開発環境", value: "http://localhost:8011" },
   ];
 
   // ユーザーIDの選択肢（必要に応じてAPIから取得）
