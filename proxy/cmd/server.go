@@ -135,20 +135,13 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string
 		return
 	}
 
-	systemURI := fmt.Sprintf("%s://%s", req.Scheme, req.Host)
-	if req.Port != 0 {
-		systemURI = fmt.Sprintf("%s:%d", systemURI, req.Port)
-	}
-
-	log.Printf("[REQUEST_ID: %s] 構築された SystemURI: %s", requestID, systemURI)
-
 	query := `
-        INSERT INTO organizations (api_endpoint, port_number, last_updated)
-        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        INSERT INTO organizations (api_endpoint, scheme, port_number, last_updated)
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
         ON CONFLICT (api_endpoint)
-        DO UPDATE SET port_number = EXCLUDED.port_number, last_updated = CURRENT_TIMESTAMP
+        DO UPDATE SET scheme = EXCLUDED.scheme, port_number = EXCLUDED.port_number, last_updated = CURRENT_TIMESTAMP
     `
-	result, err := db.Exec(query, req.Scheme+"://"+req.Host, req.Port)
+	result, err := db.Exec(query, req.Host, req.Scheme, req.Port)
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] データベースエラー: %v", requestID, err)
 		http.Error(w, "内部サーバーエラーが発生しました", http.StatusInternalServerError)
@@ -178,7 +171,7 @@ func handleRegisterPost(w http.ResponseWriter, r *http.Request, requestID string
 func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string) {
 	log.Printf("[REQUEST_ID: %s] GET /api/register リクエストの処理を開始します。", requestID)
 
-	query := `SELECT api_endpoint, port_number, last_updated FROM organizations`
+	query := `SELECT scheme, api_endpoint, port_number, last_updated FROM organizations`
 	rows, err := db.Query(query)
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] データベースクエリエラー: %v", requestID, err)
@@ -188,6 +181,7 @@ func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string)
 	defer rows.Close()
 
 	type Organization struct {
+		Scheme      string    `json:"scheme"`
 		APIEndpoint string    `json:"api_endpoint"`
 		PortNumber  int       `json:"port_number"`
 		LastUpdated time.Time `json:"last_updated"`
@@ -196,7 +190,7 @@ func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string)
 	var organizations []Organization
 	for rows.Next() {
 		var org Organization
-		if err := rows.Scan(&org.APIEndpoint, &org.PortNumber, &org.LastUpdated); err != nil {
+		if err := rows.Scan(&org.Scheme, &org.APIEndpoint, &org.PortNumber, &org.LastUpdated); err != nil {
 			log.Printf("[REQUEST_ID: %s][ERROR] 行のスキャンエラー: %v", requestID, err)
 			http.Error(w, fmt.Sprintf("行のスキャンエラー: %v", err), http.StatusInternalServerError)
 			return
@@ -273,8 +267,14 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[REQUEST_ID: %s] パース完了 - WiFiレコード数: %d, BLEレコード数: %d", requestID, len(wifiData), len(bleData))
 
-	query := `SELECT api_endpoint, port_number FROM organizations`
-	rows, err := db.Query(query)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	requesterAPIEndpoint := fmt.Sprintf("%s://%s", scheme, r.Host)
+
+	query := `SELECT scheme, api_endpoint, port_number FROM organizations WHERE api_endpoint != $1 OR scheme != $2`
+	rows, err := db.Query(query, strings.Split(requesterAPIEndpoint, "://")[1], strings.Split(requesterAPIEndpoint, "://")[0])
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] データベースクエリエラー: %v", requestID, err)
 		http.Error(w, fmt.Sprintf("データベースクエリエラー: %v", err), http.StatusInternalServerError)
@@ -283,6 +283,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type Organization struct {
+		Scheme      string
 		APIEndpoint string
 		PortNumber  int
 	}
@@ -290,7 +291,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	var organizations []Organization
 	for rows.Next() {
 		var org Organization
-		if err := rows.Scan(&org.APIEndpoint, &org.PortNumber); err != nil {
+		if err := rows.Scan(&org.Scheme, &org.APIEndpoint, &org.PortNumber); err != nil {
 			log.Printf("[REQUEST_ID: %s][ERROR] 行のスキャンエラー: %v", requestID, err)
 			http.Error(w, fmt.Sprintf("行のスキャンエラー: %v", err), http.StatusInternalServerError)
 			return
@@ -319,18 +320,19 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, org := range organizations {
 		wg.Add(1)
-		go func(systemURI string, port int) {
+		go func(org Organization) {
 			defer wg.Done()
-			log.Printf("[REQUEST_ID: %s] 組織 %s:%d へのクエリを開始します。", requestID, systemURI, port)
-			percentage, err := querySystem(systemURI, port, wifiData, bleData, requestID)
+			systemURI := fmt.Sprintf("%s://%s", org.Scheme, org.APIEndpoint)
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d へのクエリを開始します。", requestID, systemURI, org.PortNumber)
+			percentage, err := querySystem(systemURI, org.PortNumber, wifiData, bleData, requestID)
 			if err != nil {
-				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, port, err)
+				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, org.PortNumber, err)
 				responseChan <- 0
 				return
 			}
-			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - PercentageProcessed: %.2f%%", requestID, systemURI, port, float64(percentage))
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - PercentageProcessed: %.2f%%", requestID, systemURI, org.PortNumber, float64(percentage))
 			responseChan <- percentage
-		}(org.APIEndpoint, org.PortNumber)
+		}(org)
 	}
 
 	wg.Wait()
