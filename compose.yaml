@@ -34,7 +34,7 @@ services:
   echo:
     image: golang:1.22.5-bookworm
     ports:
-      - 8011:8010
+      - 8011:8011
     volumes:
       - ./echo:/app
       - /etc/localtime:/etc/localtime:ro
@@ -48,27 +48,49 @@ services:
     environment:
       - TZ=Asia/Tokyo
 
-  estimation-model:
+  manager_estimation-model:
     image: python:3.12.7-bookworm
     working_dir: /app
     volumes:
-      - ./estimation:/app
-      - ./estimation/requirements.lock:/app/requirements.lock
+      - ./manager_estimation:/app
+      - ./manager_estimation/requirements.lock:/app/requirements.lock
     command: >
       /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
     ports:
-      - "8100:8000"
+      - "8200:8000"
 
-  estimation-api:
+  manager_estimation-api:
     image: python:3.12.7-bookworm
     working_dir: /app
     volumes:
-      - ./estimation:/app
-      - ./estimation/requirements.lock:/app/requirements.lock
+      - ./manager_estimation:/app
+      - ./manager_estimation/requirements.lock:/app/requirements.lock
     command: >
       /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
     ports:
       - "8101:8101"
+
+  echo_estimation-model:
+    image: python:3.12.7-bookworm
+    working_dir: /app
+    volumes:
+      - ./echo_estimation:/app
+      - ./echo_estimation/requirements.lock:/app/requirements.lock
+    command: >
+      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
+    ports:
+      - "8201:8000"
+
+  echo_estimation-api:
+    image: python:3.12.7-bookworm
+    working_dir: /app
+    volumes:
+      - ./echo_estimation:/app
+      - ./echo_estimation/requirements.lock:/app/requirements.lock
+    command: >
+      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
+    ports:
+      - "8102:8102"
 
   postgres_manager:
     image: postgres:16.3-bookworm
