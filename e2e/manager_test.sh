@@ -1,27 +1,35 @@
 #!/bin/bash
 
 # サーバのポートを指定します（ローカル環境用）
-LOCAL_GO_APP_PORT="8010"
+LOCAL_GO_APP_PORTS=(
+    "8010"
+    "8101"
+)
 
 # 本番環境のURLを指定します
-PROD_URL="https://elpis-m1.kajilab.dev"
+PROD_URLS=(
+    "https://elpis-m1.kajilab.dev"
+    "https://elpis-m2.kajilab.dev"
+)
 
-# CSVファイルが格納されているディレクトリを指定します
-NEGATIVE_SAMPLES_DIR="./estimation/negative_samples"
-POSITIVE_SAMPLES_DIR="./estimation/positive_samples"
+# ディレクトリの候補を指定します
+SAMPLE_DIRS=(
+    "./manager_estimation/negative_samples"
+    "./manager_estimation/positive_samples"
+    "./echo_estimation/negative_samples"
+    "./echo_estimation/positive_samples"
+)
 
 # Basic認証のユーザー名とパスワード（パスワードは不要ですが、curlの仕様上指定が必要です）
 BASIC_AUTH_USER="hihumikan"
 BASIC_AUTH_PASS="password"  # 任意の値
 
-# 部屋ごとのUUIDを明確に定義
-ROOM1_UUID="4e24ac47-b7e6-44f5-957f-1cdcefa2acab"  # 部屋ID: 1
-ROOM2_UUID="517557dc-f2d6-42f1-9695-f9883f856a70"  # 部屋ID: 2
-
 # 環境選択のメニュー
 ENVIRONMENTS=(
-    "ローカル環境"
-    "本番環境"
+    "ローカル環境 (8010)"
+    "ローカル環境 (8101)"
+    "本番環境1 (elpis-m1)"
+    "本番環境2 (elpis-m2)"
 )
 
 echo "送信先の環境を選択してください:"
@@ -35,17 +43,32 @@ select ENV in "${ENVIRONMENTS[@]}"; do
 done
 
 # 環境に応じて送信先URLを設定
-if [[ "$ENV" == "ローカル環境" ]]; then
-    BASE_URL="http://localhost:${LOCAL_GO_APP_PORT}/api/signals"
-elif [[ "$ENV" == "本番環境" ]]; then
-    BASE_URL="${PROD_URL}/api/signals"
+if [[ "$ENV" == "ローカル環境 (8010)" ]]; then
+    BASE_URL="http://localhost:${LOCAL_GO_APP_PORTS[0]}/api/signals"
+elif [[ "$ENV" == "ローカル環境 (8101)" ]]; then
+    BASE_URL="http://localhost:${LOCAL_GO_APP_PORTS[1]}/api/signals"
+elif [[ "$ENV" == "本番環境1 (elpis-m1)" ]]; then
+    BASE_URL="${PROD_URLS[0]}/api/signals"
+elif [[ "$ENV" == "本番環境2 (elpis-m2)" ]]; then
+    BASE_URL="${PROD_URLS[1]}/api/signals"
 else
     echo "無効な環境が選択されました。スクリプトを終了します。"
     exit 1
 fi
 
+# 使用するディレクトリを選択
+echo "使用するデータディレクトリを選択してください:"
+select SAMPLE_DIR in "${SAMPLE_DIRS[@]}"; do
+    if [[ -d "$SAMPLE_DIR" ]]; then
+        echo "選択されたディレクトリ: $SAMPLE_DIR"
+        break
+    else
+        echo "無効なディレクトリが選択されました。もう一度お試しください。"
+    fi
+done
+
 # BLE CSVファイルのリストアップ
-BLE_FILES=($(find "$NEGATIVE_SAMPLES_DIR" "$POSITIVE_SAMPLES_DIR" -type f -name "ble_data_*.csv"))
+BLE_FILES=($(find "$SAMPLE_DIR" -type f -name "ble_data_*.csv"))
 
 if [ ${#BLE_FILES[@]} -eq 0 ]; then
     echo "BLEのCSVファイルが見つかりません。スクリプトを終了します。"
@@ -53,7 +76,7 @@ if [ ${#BLE_FILES[@]} -eq 0 ]; then
 fi
 
 # WiFi CSVファイルのリストアップ
-WIFI_FILES=($(find "$NEGATIVE_SAMPLES_DIR" "$POSITIVE_SAMPLES_DIR" -type f -name "wifi_data_*.csv"))
+WIFI_FILES=($(find "$SAMPLE_DIR" -type f -name "wifi_data_*.csv"))
 
 if [ ${#WIFI_FILES[@]} -eq 0 ]; then
     echo "WiFiのCSVファイルが見つかりません。スクリプトを終了します。"
