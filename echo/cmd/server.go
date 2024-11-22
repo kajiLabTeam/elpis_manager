@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -142,7 +141,7 @@ type HealthCheckResponse struct {
 }
 
 type PredictionResponse struct {
-	PredictedPercentage string `json:"predicted_percentage"`
+	PredictedPercentage int `json:"predicted_percentage"`
 }
 
 type EstimationServerResponse struct {
@@ -150,13 +149,12 @@ type EstimationServerResponse struct {
 }
 
 type InquiryRequest struct {
-	WifiData           string  `json:"wifi_data"`
-	BleData            string  `json:"ble_data"`
-	PresenceConfidence float64 `json:"presence_confidence"`
+	WifiData string `json:"wifi_data"`
+	BleData  string `json:"ble_data"`
 }
 
 type InquiryResponse struct {
-	ServerConfidence float64 `json:"percentage_processed"`
+	ServerConfidence int `json:"percentage_processed"`
 }
 
 type BeaconSignal struct {
@@ -193,7 +191,7 @@ func logInfo(ctx context.Context, format string, v ...interface{}) {
 
 var initLogger = log.New(os.Stdout, "[INIT] ", log.LstdFlags)
 
-func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wifiFilePath string, estimationURL string) (float64, error) {
+func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wifiFilePath string, estimationURL string) (int, error) {
 	combinedFilePath := filepath.Join(os.TempDir(), fmt.Sprintf("combined_data_%d.csv", time.Now().Unix()))
 	defer os.Remove(combinedFilePath)
 
@@ -294,15 +292,9 @@ func forwardFilesToEstimationServer(ctx context.Context, bleFilePath string, wif
 	}
 
 	logInfo(ctx, "推定サーバーからのレスポンス内容: %+v", predictionResp)
+	percentage := int(predictionResp.PredictedPercentage)
 
-	percentageStr := strings.TrimSpace(strings.TrimSuffix(predictionResp.PredictedPercentage, "%"))
-	percentage, err := strconv.ParseFloat(percentageStr, 64)
-	if err != nil {
-		logError(ctx, "予測された割合の解析に失敗しました: %v", err)
-		return 0, fmt.Errorf("予測された割合の解析に失敗しました: %v", err)
-	}
-
-	logInfo(ctx, "推定信頼度を受信しました: %.2f%%", percentage)
+	logInfo(ctx, "推定信頼度を受信しました: %d", percentage)
 
 	return percentage, nil
 }
@@ -359,7 +351,7 @@ func handleSignalsServerSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		return
 	}
 
-	percentageInt := int(math.Round(percentage))
+	percentageInt := percentage
 
 	response := EstimationServerResponse{
 		PercentageProcessed: percentageInt,
@@ -521,7 +513,7 @@ func determineRoomID(ctx context.Context, db *sql.DB, bleFilePath string, wifiFi
 	}
 }
 
-func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFilePath string, inquiryURL string, confidence float64) (float64, error) {
+func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFilePath string, inquiryURL string, confidence int) (int, error) {
 	wifiData, err := os.ReadFile(wifiFilePath)
 	if err != nil {
 		logError(ctx, "WiFiデータの読み取りに失敗しました: %v", err)
@@ -535,9 +527,8 @@ func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFi
 	}
 
 	inquiryReq := InquiryRequest{
-		WifiData:           string(wifiData),
-		BleData:            string(bleData),
-		PresenceConfidence: confidence,
+		WifiData: string(wifiData),
+		BleData:  string(bleData),
 	}
 
 	reqBody, err := json.Marshal(inquiryReq)
@@ -568,7 +559,7 @@ func forwardFilesToInquiryServer(ctx context.Context, wifiFilePath string, bleFi
 
 	logInfo(ctx, "問い合わせサーバーからのレスポンス内容: %+v", inquiryResp)
 
-	logInfo(ctx, "問い合わせ信頼度を受信しました: %.2f", inquiryResp.ServerConfidence)
+	logInfo(ctx, "問い合わせ信頼度を受信しました: %d", inquiryResp.ServerConfidence)
 
 	return inquiryResp.ServerConfidence, nil
 }
@@ -667,7 +658,7 @@ func updateLastSeen(ctx context.Context, db *sql.DB, userID int, lastSeen time.T
 	return nil
 }
 
-func updateUserPresence(ctx context.Context, db *sql.DB, userID int, estimationConfidence float64, inquiryConfidence float64, lastSeen time.Time, roomID int) error {
+func updateUserPresence(ctx context.Context, db *sql.DB, userID int, estimationConfidence int, inquiryConfidence int, lastSeen time.Time, roomID int) error {
 	if inquiryConfidence > estimationConfidence {
 		err := endUserSession(ctx, db, userID, lastSeen)
 		if err != nil {
@@ -811,7 +802,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 			return
 		}
 
-		if estimationConfidence > inquiryConfidence {
+		if estimationConfidence >= inquiryConfidence {
 			roomID, err = determineRoomID(ctx, db, bleFilePath, wifiFilePath)
 			if err != nil {
 				logError(ctx, "部屋IDの決定に失敗しました: %v", err)
@@ -1272,52 +1263,57 @@ func sanitizeString(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	return s
 }
-
 func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "メソッドが許可されていません。POSTを使用してください。", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed. Please use POST.", http.StatusMethodNotAllowed)
 		return
 	}
 
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		logError(ctx, "リクエストの解析に失敗しました: %v", err)
-		http.Error(w, "リクエストの解析に失敗しました", http.StatusBadRequest)
+		logError(ctx, "Failed to parse multipart/form-data: %v", err)
+		http.Error(w, "Failed to parse multipart/form-data", http.StatusBadRequest)
 		return
 	}
 
-	sampleType := r.FormValue("sample_type")
-	roomID := r.FormValue("room_id")
-
-	if sampleType != "positive" && sampleType != "negative" {
-		logError(ctx, "無効なsample_typeです: %s", sampleType)
-		http.Error(w, "無効なsample_typeです。'positive' または 'negative' を使用してください。", http.StatusBadRequest)
+	roomIDStr := r.FormValue("room_id")
+	if roomIDStr == "" {
+		logError(ctx, "room_id is not specified")
+		http.Error(w, "Please specify room_id.", http.StatusBadRequest)
 		return
 	}
 
-	if roomID == "" {
-		logError(ctx, "room_idが指定されていません")
-		http.Error(w, "room_idを指定してください。", http.StatusBadRequest)
+	roomID, err := strconv.Atoi(roomIDStr)
+	if err != nil {
+		logError(ctx, "Invalid room_id: %v", err)
+		http.Error(w, "room_id must be an integer.", http.StatusBadRequest)
 		return
+	}
+
+	var sampleType string
+	if roomID == 0 {
+		sampleType = "negative"
+	} else {
+		sampleType = "positive"
 	}
 
 	wifiFile, _, err := r.FormFile("wifi_data")
 	if err != nil {
-		logError(ctx, "wifi_dataファイルの取得に失敗しました: %v", err)
-		http.Error(w, "wifi_dataファイルの取得に失敗しました。", http.StatusBadRequest)
+		logError(ctx, "Failed to retrieve wifi_data file: %v", err)
+		http.Error(w, "Failed to retrieve wifi_data file.", http.StatusBadRequest)
 		return
 	}
 	defer wifiFile.Close()
 
 	bleFile, _, err := r.FormFile("ble_data")
 	if err != nil {
-		logError(ctx, "ble_dataファイルの取得に失敗しました: %v", err)
-		http.Error(w, "ble_dataファイルの取得に失敗しました。", http.StatusBadRequest)
+		logError(ctx, "Failed to retrieve ble_data file: %v", err)
+		http.Error(w, "Failed to retrieve ble_data file.", http.StatusBadRequest)
 		return
 	}
 	defer bleFile.Close()
 
 	baseDir := "./estimation"
-	sanitizedRoomID := filepath.Base(roomID)
+	sanitizedRoomID := filepath.Base(roomIDStr)
 	var saveDir string
 	if sampleType == "positive" {
 		saveDir = filepath.Join(baseDir, "positive_samples", sanitizedRoomID)
@@ -1326,8 +1322,8 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	}
 
 	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
-		logError(ctx, "保存ディレクトリの作成に失敗しました: %v", err)
-		http.Error(w, "保存ディレクトリの作成に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to create save directory: %v", err)
+		http.Error(w, "Failed to create save directory.", http.StatusInternalServerError)
 		return
 	}
 
@@ -1338,27 +1334,28 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	wifiFilePath := filepath.Join(saveDir, wifiFileName)
 	bleFilePath := filepath.Join(saveDir, bleFileName)
 
+	// ファイルの保存
 	if err := saveUploadedFile(ctx, wifiFile, wifiFilePath); err != nil {
-		logError(ctx, "wifi_dataの保存に失敗しました: %v", err)
-		http.Error(w, "wifi_dataの保存に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to save wifi_data: %v", err)
+		http.Error(w, "Failed to save wifi_data.", http.StatusInternalServerError)
 		return
 	}
 
 	if err := saveUploadedFile(ctx, bleFile, bleFilePath); err != nil {
-		logError(ctx, "ble_dataの保存に失敗しました: %v", err)
-		http.Error(w, "ble_dataの保存に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to save ble_data: %v", err)
+		http.Error(w, "Failed to save ble_data.", http.StatusInternalServerError)
 		return
 	}
 
-	response := UploadResponse{Message: "フィンガープリントデータを正常に受信しました"}
+	response := UploadResponse{Message: "Fingerprint data received successfully"}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logError(ctx, "フィンガープリント収集JSONレスポンスのエンコードに失敗しました: %v", err)
-		http.Error(w, "レスポンスの作成に失敗しました。", http.StatusInternalServerError)
+		logError(ctx, "Failed to encode JSON response: %v", err)
+		http.Error(w, "Failed to create response.", http.StatusInternalServerError)
 		return
 	}
 
-	logInfo(ctx, "フィンガープリントデータを正常に受信しました。サンプルタイプ: %s, RoomID: %s", sampleType, roomID)
+	logInfo(ctx, "Fingerprint data received successfully. Sample type: %s, RoomID: %s", sampleType, roomIDStr)
 }
 
 func main() {

@@ -40,9 +40,8 @@ type RegisterResponse struct {
 }
 
 type InquiryRequest struct {
-	WifiData           string  `json:"wifi_data"`
-	BleData            string  `json:"ble_data"`
-	PresenceConfidence float64 `json:"percentage_processed"`
+	WifiData string `json:"wifi_data"`
+	BleData  string `json:"ble_data"`
 }
 
 type OrganizationResponse struct {
@@ -249,7 +248,7 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 		bleRecordsCount = len(bleRecords)
 	}
 
-	log.Printf("[REQUEST_ID: %s] 照会リクエストを受信しました。WiFiレコード数: %d, BLEレコード数: %d, PresenceConfidence: %.2f", requestID, wifiRecordsCount, bleRecordsCount, inquiryReq.PresenceConfidence)
+	log.Printf("[REQUEST_ID: %s] 照会リクエストを受信しました。WiFiレコード数: %d, BLEレコード数: %d", requestID, wifiRecordsCount, bleRecordsCount)
 
 	wifiData, err := parseCSVFromString(inquiryReq.WifiData)
 	if err != nil {

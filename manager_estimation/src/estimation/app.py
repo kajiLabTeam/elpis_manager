@@ -77,8 +77,10 @@ async def predict_percentage(file: UploadFile = File(...)):
         # ファイル全体の適合度（平均値）を計算
         average_percentage = np.mean(y_pred_judgement)
 
-        # 結果をJSONで返却
-        return JSONResponse(content={"predicted_percentage": f"{average_percentage:.2f}%"})
+        # 結果を整数として返却
+        predicted_percentage_int = int(round(average_percentage))
+
+        return JSONResponse(content={"predicted_percentage": predicted_percentage_int})
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during prediction: {e}")
