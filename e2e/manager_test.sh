@@ -3,7 +3,7 @@
 # サーバのポートを指定します（ローカル環境用）
 LOCAL_GO_APP_PORTS=(
     "8010"
-    "8101"
+    "8011"
 )
 
 # 本番環境のURLを指定します
@@ -27,7 +27,7 @@ BASIC_AUTH_PASS="password"  # 任意の値
 # 環境選択のメニュー
 ENVIRONMENTS=(
     "ローカル環境 (8010)"
-    "ローカル環境 (8101)"
+    "ローカル環境 (8011)"
     "本番環境1 (elpis-m1)"
     "本番環境2 (elpis-m2)"
 )
@@ -45,7 +45,7 @@ done
 # 環境に応じて送信先URLを設定
 if [[ "$ENV" == "ローカル環境 (8010)" ]]; then
     BASE_URL="http://localhost:${LOCAL_GO_APP_PORTS[0]}/api/signals"
-elif [[ "$ENV" == "ローカル環境 (8101)" ]]; then
+elif [[ "$ENV" == "ローカル環境 (8011)" ]]; then
     BASE_URL="http://localhost:${LOCAL_GO_APP_PORTS[1]}/api/signals"
 elif [[ "$ENV" == "本番環境1 (elpis-m1)" ]]; then
     BASE_URL="${PROD_URLS[0]}/api/signals"

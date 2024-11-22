@@ -5,7 +5,7 @@ server_port = "8011"
 proxy_url = "http://proxy:8080/api/register"
 inquiry_url = "http://proxy:8080/api/inquiry"
 estimation_url = "http://echo_estimation-api:8102/predict"
-db_conn_str = "postgres://myuser:mypassword@postgres_manager:5432/managerdb?sslmode=disable"
+db_conn_str = "postgres://myuser:mypassword@postgres_echo:5432/echodb?sslmode=disable"
 skip_registration = false
 
 [Local]
@@ -16,4 +16,4 @@ db_conn_str = "postgres://myuser:mypassword@localhost:5433/managerdb?sslmode=dis
 skip_registration = false
 
 [Registration]
-system_uri = "manager"
+system_uri = "echo"
