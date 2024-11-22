@@ -1,4 +1,8 @@
 filename,predicted_percentage
 negative_rouka.csv,28.021825396825395
+insei_to_gakubu_kabe.csv,62.63400517655035
+rouka_to_insei.csv,30.898039843928
+gakubu_to_insei_kabe.csv,89.85439245545628
 positive_gakubu.csv,96.5960542929293
+rouka_to_gakubu.csv,52.4356417377557
 positive_insei.csv,
