@@ -80,7 +80,7 @@ interface ServerOption {
 const formatDate = (dateString: string): string => {
   if (!dateString) return "N/A";
   const date = new Date(dateString);
-  return date.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  return date.toISOString().replace('T', ' ').substring(0, 19);
 };
 
 const App: React.FC = () => {
