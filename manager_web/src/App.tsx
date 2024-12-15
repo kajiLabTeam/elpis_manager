@@ -77,6 +77,12 @@ interface ServerOption {
   value: string;
 }
 
+const formatDate = (dateString: string): string => {
+  if (!dateString) return "N/A";
+  const date = new Date(dateString);
+  return date.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+};
+
 const App: React.FC = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const storedServerUrl = isDevelopment
@@ -260,7 +266,7 @@ const App: React.FC = () => {
           allPresenceHistory.map((day) => (
             <Box key={day.date} mb={4}>
               <Typography variant="h6" gutterBottom>
-                {day.date}
+                {formatDate(day.date)}
               </Typography>
               {day.users.map((user) => (
                 <Box key={user.user_id} mb={2}>
@@ -284,15 +290,15 @@ const App: React.FC = () => {
                             <TableCell>{session.session_id}</TableCell>
                             <TableCell>{session.room_id}</TableCell>
                             <TableCell>
-                              {new Date(session.start_time).toLocaleString()}
+                              {formatDate(session.start_time)}
                             </TableCell>
                             <TableCell>
                               {session.end_time
-                                ? new Date(session.end_time).toLocaleString()
+                                ? formatDate(session.end_time)
                                 : "N/A"}
                             </TableCell>
                             <TableCell>
-                              {new Date(session.last_seen).toLocaleString()}
+                              {formatDate(session.last_seen)}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -336,9 +342,9 @@ const App: React.FC = () => {
                         <ListItem key={occupant.user_id} disablePadding>
                           <ListItemText
                             primary={`ユーザーID: ${occupant.user_id}`}
-                            secondary={`最終確認時間: ${new Date(
+                            secondary={`最終確認時間: ${formatDate(
                               occupant.last_seen
-                            ).toLocaleString()}`}
+                            )}`}
                           />
                         </ListItem>
                       ))}
