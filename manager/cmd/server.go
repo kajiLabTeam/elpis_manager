@@ -690,7 +690,7 @@ func updateUserPresence(ctx context.Context, db *sql.DB, userID int, estimationC
 	return nil
 }
 
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, estimationURL string, inquiryURL string) {
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, estimationURL string, inquiryURL string, loc *time.Location) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed. Please use POST.", http.StatusMethodNotAllowed)
 		return
@@ -726,7 +726,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 		return
 	}
 
-	currentDate := time.Now().Format("2006-01-02")
+	currentDate := time.Now().In(loc).Format("2006-01-02")
 	baseDir := "./uploads"
 	dateDir := filepath.Join(baseDir, currentDate)
 	userDir := filepath.Join(dateDir, username)
@@ -737,7 +737,7 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 		return
 	}
 
-	currentTime := time.Now()
+	currentTime := time.Now().In(loc)
 	unixTime := currentTime.Unix()
 	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", unixTime)
 	bleFileName := fmt.Sprintf("ble_data_%d.csv", unixTime)
@@ -859,7 +859,7 @@ func handleSignalsServer(w http.ResponseWriter, r *http.Request, ctx context.Con
 	handleSignalsServerSubmit(w, r, ctx, estimationURL)
 }
 
-func handlePresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB) {
+func handlePresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, loc *time.Location) {
 	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
@@ -871,9 +871,9 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.C
 			http.Error(w, "Invalid date parameter. Format should be YYYY-MM-DD.", http.StatusBadRequest)
 			return
 		}
-		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
+		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, loc)
 	} else {
-		since = time.Now().AddDate(0, -1, 0)
+		since = time.Now().In(loc).AddDate(0, -1, 0)
 	}
 
 	sessions, err := fetchAllSessions(ctx, db, since)
@@ -885,7 +885,7 @@ func handlePresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.C
 
 	dayUserMap := make(map[string]map[int][]PresenceSession)
 	for _, session := range sessions {
-		date := session.StartTime.Format("2006-01-02")
+		date := session.StartTime.In(loc).Format("2006-01-02")
 		if _, exists := dayUserMap[date]; !exists {
 			dayUserMap[date] = make(map[int][]PresenceSession)
 		}
@@ -994,7 +994,7 @@ func fetchUserSessions(ctx context.Context, db *sql.DB, userID int, since time.T
 	return sessions, nil
 }
 
-func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, userID int) {
+func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, userID int, loc *time.Location) {
 	dateStr := r.URL.Query().Get("date")
 	var since time.Time
 	var err error
@@ -1006,9 +1006,9 @@ func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, ctx conte
 			http.Error(w, "Invalid date parameter. Format should be YYYY-MM-DD.", http.StatusBadRequest)
 			return
 		}
-		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, since.Location())
+		since = time.Date(since.Year(), since.Month(), since.Day(), 0, 0, 0, 0, loc)
 	} else {
-		since = time.Now().AddDate(0, -1, 0)
+		since = time.Now().In(loc).AddDate(0, -1, 0)
 	}
 
 	sessions, err := fetchUserSessions(ctx, db, userID, since)
@@ -1020,7 +1020,7 @@ func handleUserPresenceHistory(w http.ResponseWriter, r *http.Request, ctx conte
 
 	historyMap := make(map[string][]PresenceSession)
 	for _, session := range sessions {
-		date := session.StartTime.Format("2006-01-02")
+		date := session.StartTime.In(loc).Format("2006-01-02")
 		historyMap[date] = append(historyMap[date], session)
 	}
 
@@ -1124,10 +1124,10 @@ func handleCurrentOccupants(w http.ResponseWriter, r *http.Request, ctx context.
 	}
 }
 
-func handleHealthCheck(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB) {
+func handleHealthCheck(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, loc *time.Location) {
 	response := HealthCheckResponse{
 		Status:    "ok",
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: time.Now().In(loc).Format(time.RFC3339),
 	}
 
 	if err := db.PingContext(ctx); err != nil {
@@ -1148,13 +1148,13 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	}
 }
 
-func cleanUpOldSessions(ctx context.Context, db *sql.DB, inactivityThreshold time.Duration) {
+func cleanUpOldSessions(ctx context.Context, db *sql.DB, inactivityThreshold time.Duration, loc *time.Location) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		<-ticker.C
-		cutoffTime := time.Now().Add(-inactivityThreshold)
+		cutoffTime := time.Now().In(loc).Add(-inactivityThreshold)
 
 		rows, err := db.QueryContext(ctx, `
             SELECT user_id, last_seen
@@ -1179,7 +1179,7 @@ func cleanUpOldSessions(ctx context.Context, db *sql.DB, inactivityThreshold tim
 		rows.Close()
 
 		for _, uid := range usersToEnd {
-			endTime := time.Now()
+			endTime := time.Now().In(loc)
 			err := endUserSession(ctx, db, uid, endTime)
 			if err == nil {
 				logInfo(ctx, "Ended session for user ID %d", uid)
@@ -1263,7 +1263,7 @@ func sanitizeString(s string) string {
 	return s
 }
 
-func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx context.Context, loc *time.Location) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed. Please use POST.", http.StatusMethodNotAllowed)
 		return
@@ -1327,7 +1327,7 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 		return
 	}
 
-	timestamp := time.Now().Unix()
+	timestamp := time.Now().In(loc).Unix()
 	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", timestamp)
 	bleFileName := fmt.Sprintf("ble_data_%d.csv", timestamp)
 
@@ -1391,10 +1391,17 @@ func main() {
 		skipRegistration = config.Docker.SkipRegistration
 	}
 
-	// Initialize the logger with desired handler and options
+	// Initialize the logger
 	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+
+	// Load Asia/Tokyo location
+	loc, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		logger.Error("Failed to load Asia/Tokyo location", "error", err)
+		os.Exit(1)
+	}
 
 	logConfig(context.Background(), `
 ===========================================
@@ -1405,7 +1412,7 @@ func main() {
 	Proxy URL          : %s
 	Estimation URL     : %s
 	Inquiry URL        : %s
-	Database ConnStr    : %s
+	Database ConnStr   : %s
 	Skip Registration  : %v
 	System URI         : %s
 ===========================================
@@ -1470,7 +1477,7 @@ func main() {
 		}()
 	}
 
-	go cleanUpOldSessions(context.Background(), db, 10*time.Minute)
+	go cleanUpOldSessions(context.Background(), db, 10*time.Minute, loc)
 
 	mux := http.NewServeMux()
 
@@ -1486,7 +1493,7 @@ func main() {
 				http.Error(w, "Invalid user ID", http.StatusBadRequest)
 				return
 			}
-			handleUserPresenceHistory(w, r, ctx, db, userID)
+			handleUserPresenceHistory(w, r, ctx, db, userID, loc)
 			return
 		}
 		http.NotFound(w, r)
@@ -1500,7 +1507,7 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		handlePresenceHistory(w, r, ctx, db)
+		handlePresenceHistory(w, r, ctx, db, loc)
 	})
 
 	mux.HandleFunc("/api/current_occupants", func(w http.ResponseWriter, r *http.Request) {
@@ -1517,7 +1524,7 @@ func main() {
 	mux.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		id := atomic.AddUint64(&requestID, 1)
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		handleSignalsSubmit(w, r, ctx, db, estimationURL, inquiryURL)
+		handleSignalsSubmit(w, r, ctx, db, estimationURL, inquiryURL, loc)
 	})
 
 	mux.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
@@ -1529,13 +1536,13 @@ func main() {
 	mux.HandleFunc("/api/fingerprint/collect", func(w http.ResponseWriter, r *http.Request) {
 		id := atomic.AddUint64(&requestID, 1)
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		handleFingerprintCollect(w, r, ctx)
+		handleFingerprintCollect(w, r, ctx, loc)
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		id := atomic.AddUint64(&requestID, 1)
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		handleHealthCheck(w, r, ctx, db)
+		handleHealthCheck(w, r, ctx, db, loc)
 	})
 
 	loggedMux := loggingMiddleware(mux)
