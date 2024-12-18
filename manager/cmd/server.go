@@ -1477,7 +1477,7 @@ func main() {
 		}()
 	}
 
-	go cleanUpOldSessions(context.Background(), db, 10*time.Minute, loc)
+	go cleanUpOldSessions(context.Background(), db, 21*time.Minute, loc)
 
 	mux := http.NewServeMux()
 
