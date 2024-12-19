@@ -59,6 +59,17 @@ services:
     ports:
       - "8200:8000"
 
+  manager_classification-model:
+    image: python:3.12.7-bookworm
+    working_dir: /app
+    volumes:
+      - ./manager_estimation:/app
+      - ./manager_estimation/requirements.lock:/app/requirements.lock
+    command: >
+      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/classification.py"
+    ports:
+      - "8300:8000"
+
   manager_estimation-api:
     image: python:3.12.7-bookworm
     working_dir: /app

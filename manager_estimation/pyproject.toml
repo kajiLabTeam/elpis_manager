@@ -37,3 +37,4 @@ packages = ["src/estimation"]
 [project.scripts]
 main = "estimation.main:main"
 app = "estimation.app:app"
+classification = "estimation.classification:main"
