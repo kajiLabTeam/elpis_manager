@@ -54,8 +54,12 @@ services:
     volumes:
       - ./manager_estimation:/app
       - ./manager_estimation/requirements.lock:/app/requirements.lock
+      - ./manager/manager_fingerprint:/app/manager_fingerprint  # 修正: /app/manager_fingerprintにマウント
+    environment:
+      - TZ=Asia/Tokyo
+      - FINGERPRINT_DIR=/app/manager_fingerprint  # 修正: 絶対パスを設定
     command: >
-      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
+      /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
     ports:
       - "8200:8000"
 
@@ -65,8 +69,12 @@ services:
     volumes:
       - ./manager_estimation:/app
       - ./manager_estimation/requirements.lock:/app/requirements.lock
+      - ./manager/manager_fingerprint:/app/manager_fingerprint
+    environment:
+      - TZ=Asia/Tokyo
+      - FINGERPRINT_DIR=/app/manager_fingerprint
     command: >
-      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/classification.py"
+      /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/classification.py"
     ports:
       - "8300:8000"
 
@@ -76,8 +84,12 @@ services:
     volumes:
       - ./manager_estimation:/app
       - ./manager_estimation/requirements.lock:/app/requirements.lock
+      - ./manager/manager_fingerprint:/app/manager_fingerprint
+    environment:
+      - TZ=Asia/Tokyo
+      - FINGERPRINT_DIR=/app/manager_fingerprint
     command: >
-      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
+      /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
     ports:
       - "8101:8101"
 
@@ -87,8 +99,10 @@ services:
     volumes:
       - ./echo_estimation:/app
       - ./echo_estimation/requirements.lock:/app/requirements.lock
+    environment:
+      - TZ=Asia/Tokyo
     command: >
-      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
+      /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
     ports:
       - "8201:8000"
 
@@ -98,8 +112,10 @@ services:
     volumes:
       - ./echo_estimation:/app
       - ./echo_estimation/requirements.lock:/app/requirements.lock
+    environment:
+      - TZ=Asia/Tokyo
     command: >
-      /bin/sh -c " pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
+      /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
     ports:
       - "8102:8102"
 
@@ -204,6 +220,7 @@ services:
     command: mock -h 0.0.0.0 /openapi.yaml
     volumes:
       - ./openapi.yaml:/openapi.yaml
+
 networks:
   elpis_network:
     external: true

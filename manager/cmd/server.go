@@ -1327,6 +1327,13 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 		return
 	}
 
+	managerFingerprintDir := filepath.Join(".", "manager_fingerprint", sanitizedRoomID)
+	if err := os.MkdirAll(managerFingerprintDir, os.ModePerm); err != nil {
+		logError(ctx, "manager_fingerprintディレクトリの作成に失敗しました: %v", err)
+		http.Error(w, "manager_fingerprintディレクトリの作成に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+
 	timestamp := time.Now().In(loc).Unix()
 	wifiFileName := fmt.Sprintf("wifi_data_%d.csv", timestamp)
 	bleFileName := fmt.Sprintf("ble_data_%d.csv", timestamp)
@@ -1334,15 +1341,30 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	wifiFilePath := filepath.Join(saveDir, wifiFileName)
 	bleFilePath := filepath.Join(saveDir, bleFileName)
 
+	// 保存先のパスを追加
+	managerWifiFilePath := filepath.Join(managerFingerprintDir, wifiFileName)
+	managerBleFilePath := filepath.Join(managerFingerprintDir, bleFileName)
+
 	if err := saveUploadedFile(ctx, wifiFile, wifiFilePath); err != nil {
 		logError(ctx, "wifi_dataの保存に失敗しました: %v", err)
 		http.Error(w, "wifi_dataの保存に失敗しました。", http.StatusInternalServerError)
 		return
 	}
-
 	if err := saveUploadedFile(ctx, bleFile, bleFilePath); err != nil {
 		logError(ctx, "ble_dataの保存に失敗しました: %v", err)
 		http.Error(w, "ble_dataの保存に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+
+	// 追加: ../manager_fingerprint/{room_id} にも保存
+	if err := saveUploadedFile(ctx, wifiFile, managerWifiFilePath); err != nil {
+		logError(ctx, "manager_fingerprintへのwifi_dataの保存に失敗しました: %v", err)
+		http.Error(w, "manager_fingerprintへのwifi_dataの保存に失敗しました。", http.StatusInternalServerError)
+		return
+	}
+	if err := saveUploadedFile(ctx, bleFile, managerBleFilePath); err != nil {
+		logError(ctx, "manager_fingerprintへのble_dataの保存に失敗しました: %v", err)
+		http.Error(w, "manager_fingerprintへのble_dataの保存に失敗しました。", http.StatusInternalServerError)
 		return
 	}
 
@@ -1404,14 +1426,14 @@ func main() {
 ==========================================
 		サーバー設定
 -------------------------------------------
-	Mode               : %s
-	Server Port        : %s
-	Proxy URL          : %s
-	Estimation URL     : %s
-	Inquiry URL        : %s
-	Database ConnStr   : %s
-	Skip Registration  : %v
-	System URI         : %s
+Mode               : %s
+Server Port        : %s
+Proxy URL          : %s
+Estimation URL     : %s
+Inquiry URL        : %s
+Database ConnStr   : %s
+Skip Registration  : %v
+System URI         : %s
 ==========================================
 `, *mode, *port, proxyURL, estimationURL, inquiryURL, dbConnStr, skipRegistration, config.Registration.SystemURI)
 

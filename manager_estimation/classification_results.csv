@@ -1,5 +1,5 @@
 sample_file,predicted_room,prediction_probability,status
-graduate_1.csv,GraduateStudentsRoom,0.74,不明
-undergraduate_1.csv,UndergraduateStudentsRoom,0.9125,正解
-undergraduate_2.csv,UndergraduateStudentsRoom,0.66,不明
-undergraduate_3.csv,UndergraduateStudentsRoom,0.58,不明
+graduate_1.csv,GraduateStudentsRoom,0.99,正解
+undergraduate_1.csv,UndergraduateStudentsRoom,0.536,不明
+undergraduate_2.csv,GraduateStudentsRoom,0.73,不明
+undergraduate_3.csv,GraduateStudentsRoom,0.84,正解
