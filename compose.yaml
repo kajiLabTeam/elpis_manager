@@ -54,10 +54,9 @@ services:
     volumes:
       - ./manager_estimation:/app
       - ./manager_estimation/requirements.lock:/app/requirements.lock
-      - ./manager/manager_fingerprint:/app/manager_fingerprint  # 修正: /app/manager_fingerprintにマウント
+      - ./manager/manager_fingerprint:/app/manager_fingerprint
     environment:
       - TZ=Asia/Tokyo
-      - FINGERPRINT_DIR=/app/manager_fingerprint  # 修正: 絶対パスを設定
     command: >
       /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/main.py"
     ports:
@@ -72,7 +71,6 @@ services:
       - ./manager/manager_fingerprint:/app/manager_fingerprint
     environment:
       - TZ=Asia/Tokyo
-      - FINGERPRINT_DIR=/app/manager_fingerprint
     command: >
       /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/classification.py"
     ports:
@@ -87,7 +85,6 @@ services:
       - ./manager/manager_fingerprint:/app/manager_fingerprint
     environment:
       - TZ=Asia/Tokyo
-      - FINGERPRINT_DIR=/app/manager_fingerprint
     command: >
       /bin/sh -c "pip install uv && pip install --no-cache-dir -r requirements.lock && python ./src/estimation/app.py"
     ports:

@@ -821,6 +821,40 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 			} else {
 				logInfo(ctx, "ユーザーID %d のセッションを終了しました", userID)
 			}
+
+			// **ネガティブサンプルとして保存する処理を追加**
+			// ネガティブサンプル保存ディレクトリの定義
+			negativeSampleDir := "./manager_fingerprint/0"
+
+			// ディレクトリが存在しない場合は作成
+			if err := os.MkdirAll(negativeSampleDir, os.ModePerm); err != nil {
+				logError(ctx, "ネガティブサンプル保存ディレクトリの作成に失敗しました: %v", err)
+				// サーバーエラーとして応答
+				http.Error(w, "ネガティブサンプル保存ディレクトリの作成に失敗しました", http.StatusInternalServerError)
+				return
+			}
+
+			// ファイル名の生成
+			negativeWifiFileName := fmt.Sprintf("wifi_data_negative_%d.csv", unixTime)
+			negativeBleFileName := fmt.Sprintf("ble_data_negative_%d.csv", unixTime)
+
+			negativeWifiFilePath := filepath.Join(negativeSampleDir, negativeWifiFileName)
+			negativeBleFilePath := filepath.Join(negativeSampleDir, negativeBleFileName)
+
+			// ファイルのコピー
+			if err := copyFile(ctx, wifiFilePath, negativeWifiFilePath); err != nil {
+				logError(ctx, "WiFiデータのネガティブサンプルへのコピーに失敗しました: %v", err)
+				http.Error(w, "WiFiデータのネガティブサンプルへのコピーに失敗しました", http.StatusInternalServerError)
+				return
+			}
+
+			if err := copyFile(ctx, bleFilePath, negativeBleFilePath); err != nil {
+				logError(ctx, "BLEデータのネガティブサンプルへのコピーに失敗しました: %v", err)
+				http.Error(w, "BLEデータのネガティブサンプルへのコピーに失敗しました", http.StatusInternalServerError)
+				return
+			}
+
+			logInfo(ctx, "ユーザーID %d のデータをネガティブサンプルとして保存しました", userID)
 		}
 	} else {
 		if estimationConfidence > 70 {
@@ -853,6 +887,42 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 		http.Error(w, "JSON応答のエンコードに失敗しました", http.StatusInternalServerError)
 		return
 	}
+}
+
+// copyFile はソースファイルからターゲットファイルへ内容をコピーします
+func copyFile(ctx context.Context, srcPath string, dstPath string) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		logError(ctx, "ソースファイルのオープンに失敗しました: %v", err)
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dstPath)
+	if err != nil {
+		logError(ctx, "ターゲットファイルの作成に失敗しました: %v", err)
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		logError(ctx, "ファイルのコピー中にエラーが発生しました: %v", err)
+		return err
+	}
+
+	// ファイルのパーミッションをコピー
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		logError(ctx, "ソースファイルの情報取得に失敗しました: %v", err)
+		return err
+	}
+	if err := os.Chmod(dstPath, srcInfo.Mode()); err != nil {
+		logError(ctx, "ターゲットファイルのパーミッション変更に失敗しました: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 func handleSignalsServer(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, estimationURL string, inquiryURL string) {
@@ -1341,7 +1411,6 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 	wifiFilePath := filepath.Join(saveDir, wifiFileName)
 	bleFilePath := filepath.Join(saveDir, bleFileName)
 
-	// 保存先のパスを追加
 	managerWifiFilePath := filepath.Join(managerFingerprintDir, wifiFileName)
 	managerBleFilePath := filepath.Join(managerFingerprintDir, bleFileName)
 
@@ -1356,7 +1425,7 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 		return
 	}
 
-	// 追加: ../manager_fingerprint/{room_id} にも保存
+	// 追加: ../manager_fingerprint/{room_id} に保存
 	if err := saveUploadedFile(ctx, wifiFile, managerWifiFilePath); err != nil {
 		logError(ctx, "manager_fingerprintへのwifi_dataの保存に失敗しました: %v", err)
 		http.Error(w, "manager_fingerprintへのwifi_dataの保存に失敗しました。", http.StatusInternalServerError)
@@ -1424,7 +1493,7 @@ func main() {
 
 	logConfig(context.Background(), `
 ==========================================
-		サーバー設定
+	サーバー設定
 -------------------------------------------
 Mode               : %s
 Server Port        : %s
