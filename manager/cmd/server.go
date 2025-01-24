@@ -1451,18 +1451,15 @@ func handleFingerprintCollect(w http.ResponseWriter, r *http.Request, ctx contex
 func main() {
 	configPath := "config.toml"
 
-	// Step 1: Load Configuration
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
-		// Temporary logger to log config file errors to stdout
-		tempLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelError,
 		}))
-		tempLogger.Error("設定ファイルの読み取りに失敗しました", "error", err)
+		logger.Error("設定ファイルの読み取りに失敗しました", "error", err)
 		os.Exit(1)
 	}
 
-	// Step 2: Parse Flags
 	mode := flag.String("mode", config.Mode, "アプリケーションモード（dockerまたはlocal）")
 	port := flag.String("port", config.ServerPort, "サーバーポート")
 	flag.Parse()
@@ -1484,39 +1481,16 @@ func main() {
 		skipRegistration = config.Docker.SkipRegistration
 	}
 
-	// Step 3: Setup Logging to File
-	logDir := "log"
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "ログディレクトリの作成に失敗しました: %v\n", err)
-		os.Exit(1)
-	}
-
-	currentTime := time.Now()
-	filename := fmt.Sprintf("%s_%s_%d.log",
-		currentTime.Format("20060102"), // yyyymmdd
-		currentTime.Format("150405"),   // HHMMSS
-		currentTime.Unix())             // unixtime
-	logPath := filepath.Join(logDir, filename)
-
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ログファイルのオープンに失敗しました: %v\n", err)
-		os.Exit(1)
-	}
-	defer logFile.Close()
-
-	logger = slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{
+	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
-	// Step 4: Load Time Location
 	loc, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		logger.Error("Asia/Tokyoのロケーションの読み込みに失敗しました", "error", err)
 		os.Exit(1)
 	}
 
-	// Step 5: Log Configuration Details
 	logConfig(context.Background(), `
 ==========================================
 	サーバー設定
@@ -1530,9 +1504,8 @@ Database ConnStr   : %s
 Skip Registration  : %v
 System URI         : %s
 ==========================================
-	`, *mode, *port, proxyURL, estimationURL, inquiryURL, dbConnStr, skipRegistration, config.Registration.SystemURI)
+`, *mode, *port, proxyURL, estimationURL, inquiryURL, dbConnStr, skipRegistration, config.Registration.SystemURI)
 
-	// Step 6: Connect to Database
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
 		logError(context.Background(), "データベースへの接続に失敗しました: %v", err)
@@ -1546,7 +1519,6 @@ System URI         : %s
 	}
 	logInfo(context.Background(), "データベースに正常に接続しました")
 
-	// Step 7: Registration Logic
 	if !skipRegistration {
 		go func() {
 			serverPortInt, err := strconv.Atoi(*port)
@@ -1593,10 +1565,8 @@ System URI         : %s
 		}()
 	}
 
-	// Step 8: Cleanup Old Sessions
 	go cleanUpOldSessions(context.Background(), db, 21*time.Minute, loc)
 
-	// Step 9: Setup HTTP Handlers
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
@@ -1663,10 +1633,8 @@ System URI         : %s
 		handleHealthCheck(w, r, ctx, db, loc)
 	})
 
-	// Step 10: Apply Logging Middleware
 	loggedMux := loggingMiddleware(mux)
 
-	// Step 11: Apply CORS
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "https://elpis.kajilab.dev", "https://elpis-a.kajilab.dev", "https://elpis-b.kajilab.dev"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -1676,7 +1644,6 @@ System URI         : %s
 
 	finalHandler := corsHandler.Handler(loggedMux)
 
-	// Step 12: Start the Server
 	logInfo(context.Background(), "ポート %s でサーバーを開始します。モード: %s", *port, *mode)
 	if err := http.ListenAndServe(":"+*port, finalHandler); err != nil {
 		logError(context.Background(), "サーバーの起動に失敗しました: %v", err)
