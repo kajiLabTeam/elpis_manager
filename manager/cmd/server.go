@@ -690,7 +690,8 @@ func updateUserPresence(ctx context.Context, db *sql.DB, userID int, estimationC
 	return nil
 }
 
-func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, estimationURL string, inquiryURL string, loc *time.Location) {
+// handleSignalsSubmit は、skipRegistration の設定により、estimationConfidenceが20～70の場合の処理を問い合わせサーバーへ問い合わせするかどうかを切り替えます。
+func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, db *sql.DB, estimationURL string, inquiryURL string, loc *time.Location, skipRegistration bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "許可されていないメソッドです。POSTを使用してください。", http.StatusMethodNotAllowed)
 		return
@@ -792,8 +793,18 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 		return
 	}
 
-	var roomID int
-	if estimationConfidence >= 20 && estimationConfidence <= 70 {
+	// ここから、estimationConfidence による処理分岐
+	// ・estimationConfidence < 20 の場合：セッション終了
+	// ・estimationConfidence が 20～70 かつ skipRegistration==false の場合：問い合わせサーバーへ問い合わせ
+	// ・それ以外（estimationConfidence > 70 または、20～70 で skipRegistration==true の場合）：直接ルームID決定・プレゼンス更新
+	if estimationConfidence < 20 {
+		err = endUserSession(ctx, db, userID, currentTime)
+		if err != nil {
+			logError(ctx, "ユーザーID %d のセッション終了に失敗しました: %v", userID, err)
+		} else {
+			logInfo(ctx, "ユーザーID %d のセッションを終了しました", userID)
+		}
+	} else if estimationConfidence <= 70 && !skipRegistration {
 		inquiryConfidence, err := forwardFilesToInquiryServer(ctx, wifiFilePath, bleFilePath, inquiryURL, estimationConfidence)
 		if err != nil {
 			logError(ctx, "問い合わせサーバーへの転送に失敗しました: %v", err)
@@ -802,14 +813,13 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 		}
 
 		if estimationConfidence >= inquiryConfidence {
-			roomID, err = determineRoomID(ctx, db, bleFilePath, wifiFilePath)
+			roomID, err := determineRoomID(ctx, db, bleFilePath, wifiFilePath)
 			if err != nil {
 				logError(ctx, "ルームIDの決定に失敗しました: %v", err)
 				http.Error(w, fmt.Sprintf("ルームIDの決定に失敗しました: %v", err), http.StatusInternalServerError)
 				return
 			}
 			logInfo(ctx, "ユーザーID %d に対するルームID %d を決定しました", userID, roomID)
-
 			err = updateUserPresence(ctx, db, userID, estimationConfidence, inquiryConfidence, currentTime, roomID)
 			if err != nil {
 				logError(ctx, "ユーザーID %d のプレゼンス更新に失敗しました: %v", userID, err)
@@ -822,61 +832,41 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 				logInfo(ctx, "ユーザーID %d のセッションを終了しました", userID)
 			}
 
-			// **ネガティブサンプルとして保存する処理を追加**
-			// ネガティブサンプル保存ディレクトリの定義
+			// ネガティブサンプルとして保存する処理
 			negativeSampleDir := "./manager_fingerprint/0"
-
-			// ディレクトリが存在しない場合は作成
 			if err := os.MkdirAll(negativeSampleDir, os.ModePerm); err != nil {
 				logError(ctx, "ネガティブサンプル保存ディレクトリの作成に失敗しました: %v", err)
-				// サーバーエラーとして応答
 				http.Error(w, "ネガティブサンプル保存ディレクトリの作成に失敗しました", http.StatusInternalServerError)
 				return
 			}
-
-			// ファイル名の生成
 			negativeWifiFileName := fmt.Sprintf("wifi_data_negative_%d.csv", unixTime)
 			negativeBleFileName := fmt.Sprintf("ble_data_negative_%d.csv", unixTime)
-
 			negativeWifiFilePath := filepath.Join(negativeSampleDir, negativeWifiFileName)
 			negativeBleFilePath := filepath.Join(negativeSampleDir, negativeBleFileName)
-
-			// ファイルのコピー
 			if err := copyFile(ctx, wifiFilePath, negativeWifiFilePath); err != nil {
 				logError(ctx, "WiFiデータのネガティブサンプルへのコピーに失敗しました: %v", err)
 				http.Error(w, "WiFiデータのネガティブサンプルへのコピーに失敗しました", http.StatusInternalServerError)
 				return
 			}
-
 			if err := copyFile(ctx, bleFilePath, negativeBleFilePath); err != nil {
 				logError(ctx, "BLEデータのネガティブサンプルへのコピーに失敗しました: %v", err)
 				http.Error(w, "BLEデータのネガティブサンプルへのコピーに失敗しました", http.StatusInternalServerError)
 				return
 			}
-
 			logInfo(ctx, "ユーザーID %d のデータをネガティブサンプルとして保存しました", userID)
 		}
 	} else {
-		if estimationConfidence > 70 {
-			roomID, err = determineRoomID(ctx, db, bleFilePath, wifiFilePath)
-			if err != nil {
-				logError(ctx, "ルームIDの決定に失敗しました: %v", err)
-				http.Error(w, fmt.Sprintf("ルームIDの決定に失敗しました: %v", err), http.StatusInternalServerError)
-				return
-			}
-			logInfo(ctx, "ユーザーID %d に対するルームID %d を決定しました", userID, roomID)
-
-			err = updateUserPresence(ctx, db, userID, estimationConfidence, 0, currentTime, roomID)
-			if err != nil {
-				logError(ctx, "ユーザーID %d のプレゼンス更新に失敗しました: %v", userID, err)
-			}
-		} else {
-			err = endUserSession(ctx, db, userID, currentTime)
-			if err != nil {
-				logError(ctx, "ユーザーID %d のセッション終了に失敗しました: %v", userID, err)
-			} else {
-				logInfo(ctx, "ユーザーID %d のセッションを終了しました", userID)
-			}
+		// estimationConfidence > 70 または、20～70 で skipRegistration==true の場合
+		roomID, err := determineRoomID(ctx, db, bleFilePath, wifiFilePath)
+		if err != nil {
+			logError(ctx, "ルームIDの決定に失敗しました: %v", err)
+			http.Error(w, fmt.Sprintf("ルームIDの決定に失敗しました: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logInfo(ctx, "ユーザーID %d に対するルームID %d を決定しました", userID, roomID)
+		err = updateUserPresence(ctx, db, userID, estimationConfidence, 0, currentTime, roomID)
+		if err != nil {
+			logError(ctx, "ユーザーID %d のプレゼンス更新に失敗しました: %v", userID, err)
 		}
 	}
 
@@ -885,7 +875,6 @@ func handleSignalsSubmit(w http.ResponseWriter, r *http.Request, ctx context.Con
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logError(ctx, "JSON応答のエンコードに失敗しました: %v", err)
 		http.Error(w, "JSON応答のエンコードに失敗しました", http.StatusInternalServerError)
-		return
 	}
 }
 
@@ -1612,7 +1601,8 @@ System URI         : %s
 	mux.HandleFunc("/api/signals/submit", func(w http.ResponseWriter, r *http.Request) {
 		id := atomic.AddUint64(&requestID, 1)
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		handleSignalsSubmit(w, r, ctx, db, estimationURL, inquiryURL, loc)
+		// skipRegistration の値を渡す
+		handleSignalsSubmit(w, r, ctx, db, estimationURL, inquiryURL, loc, skipRegistration)
 	})
 
 	mux.HandleFunc("/api/signals/server", func(w http.ResponseWriter, r *http.Request) {
