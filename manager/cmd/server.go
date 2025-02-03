@@ -1554,7 +1554,7 @@ System URI         : %s
 		}()
 	}
 
-	go cleanUpOldSessions(context.Background(), db, 21*time.Minute, loc)
+	go cleanUpOldSessions(context.Background(), db, 30*time.Minute, loc)
 
 	mux := http.NewServeMux()
 
