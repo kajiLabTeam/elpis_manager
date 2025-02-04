@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 
 # ポジティブとみなすroom_idのリスト（定数配列）
-POSITIVE_ROOM_IDS = ['513', '514', '515']
+POSITIVE_ROOM_IDS = ['514']
 
 def load_data(fingerprint_dir):
     data_list = []
