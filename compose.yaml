@@ -96,6 +96,7 @@ services:
     volumes:
       - ./echo_estimation:/app
       - ./echo_estimation/requirements.lock:/app/requirements.lock
+      - ./manager/manager_fingerprint:/app/manager_fingerprint
     environment:
       - TZ=Asia/Tokyo
     command: >
@@ -109,6 +110,7 @@ services:
     volumes:
       - ./echo_estimation:/app
       - ./echo_estimation/requirements.lock:/app/requirements.lock
+      - ./manager/manager_fingerprint:/app/manager_fingerprint
     environment:
       - TZ=Asia/Tokyo
     command: >
