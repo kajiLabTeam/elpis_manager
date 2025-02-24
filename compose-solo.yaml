@@ -8,8 +8,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
     working_dir: /app
     depends_on:
-      proxy:
-        condition: service_started
       postgres_manager:
         condition: service_healthy
     command: go run ./cmd/server.go
