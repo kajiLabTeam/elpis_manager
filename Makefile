@@ -78,6 +78,8 @@ run-test-web: ## Run the Web e2e test
 run-test-fingerprint: ## Run the Fingerprint e2e test
 	bash ./e2e/fingerprint_test.sh
 
+run-solo:
+	docker compose -f compose-solo.yaml -p manager-solo up -d
 # Help message
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
