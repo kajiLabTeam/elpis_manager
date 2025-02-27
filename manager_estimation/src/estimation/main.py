@@ -10,7 +10,7 @@ import warnings
 from sklearn.exceptions import ConvergenceWarning
 import logging
 
-# ログの設定
+# ログの設定（日本語メッセージ用）
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -26,16 +26,16 @@ POSITIVE_ROOM_IDS = ['514']
 def load_data(fingerprint_dir):
     data_list = []
     fingerprint_dir_abs = os.path.abspath(fingerprint_dir)
-    logging.info(f"Scanning fingerprint directory: {fingerprint_dir_abs}")
+    logging.info(f"指紋ディレクトリをスキャン中: {fingerprint_dir_abs}")
 
     # 指定された親ディレクトリ内の各サブディレクトリを走査
     for room_id in os.listdir(fingerprint_dir):
         room_path = os.path.join(fingerprint_dir, room_id)
         if os.path.isdir(room_path):
-            logging.info(f"Found room directory: {room_id}")
+            logging.info(f"部屋ディレクトリが見つかりました: {room_id}")
             # room_id がポジティブサンプルリストに含まれているか確認
             label = 1 if room_id in POSITIVE_ROOM_IDS else 0
-            label_type = 'positive' if label == 1 else 'negative'
+            label_type = '正' if label == 1 else '負'
 
             # 各room_idディレクトリ内のCSVファイルを読み込む
             for filename in os.listdir(room_path):
@@ -47,37 +47,37 @@ def load_data(fingerprint_dir):
                             df['label'] = label
                             data_list.append(df)
                             absolute_path = os.path.abspath(filepath)
-                            logging.info(f"Loaded {label_type} sample file: {absolute_path}")
+                            logging.info(f"{label_type}サンプルファイルを読み込みました: {absolute_path}")
                         except Exception as e:
-                            logging.error(f"Failed to load file: {filepath}. Error: {e}")
+                            logging.error(f"ファイルの読み込みに失敗しました: {filepath} エラー: {e}")
                 else:
-                    logging.debug(f"Skipping non-CSV file: {filename}")
+                    logging.debug(f"CSVファイル以外はスキップ: {filename}")
         else:
-            logging.debug(f"Skipping non-directory item: {room_id}")
+            logging.debug(f"ディレクトリ以外の項目はスキップ: {room_id}")
 
     if not data_list:
-        logging.warning("No data loaded. Please check the CSV files in the directories.")
+        logging.warning("データが読み込まれていません。ディレクトリ内のCSVファイルを確認してください。")
         return None
 
     data = pd.concat(data_list, ignore_index=True)
     return data
 
 def preprocess_data(data):
-    logging.info(f"Total samples loaded: {len(data)}")
-    logging.info(f"Total data points: {data.shape[0]}")
-    logging.info(f"Number of negative samples: {(data['label'] == 0).sum()}")
-    logging.info(f"Number of positive samples: {(data['label'] == 1).sum()}")
-    logging.info("Data head:")
+    logging.info(f"読み込んだサンプル数: {len(data)}")
+    logging.info(f"データポイントの総数: {data.shape[0]}")
+    logging.info(f"負例のサンプル数: {(data['label'] == 0).sum()}")
+    logging.info(f"正例のサンプル数: {(data['label'] == 1).sum()}")
+    logging.info("データの先頭:")
     logging.info(data.head())
-    logging.info(f"Class distribution:\n{data['label'].value_counts()}")
-    logging.info(f"Unique identifiers: {data['identifier'].nunique()}")
-    logging.info("Sample data points:")
+    logging.info(f"クラス分布:\n{data['label'].value_counts()}")
+    logging.info(f"ユニークな識別子の数: {data['identifier'].nunique()}")
+    logging.info("サンプルのデータポイント:")
     logging.info(data.sample(5))
-    logging.info(f"Data types:\n{data.dtypes}")
-    logging.info(f"Missing values:\n{data.isnull().sum()}")
-    logging.info(f"Unique timestamps: {data['timestamp'].nunique()}")
+    logging.info(f"データ型:\n{data.dtypes}")
+    logging.info(f"欠損値:\n{data.isnull().sum()}")
+    logging.info(f"ユニークなタイムスタンプ数: {data['timestamp'].nunique()}")
 
-    # ラベルをパーセンテージにスケーリング（0と1を0と100に変換）
+    # ラベルをパーセンテージにスケーリング（0と1を0%と100%に変換）
     data['percentage'] = data['label'] * 100
 
     # ラベルデータの作成（各タイムスタンプごとに一意のラベルを取得）
@@ -119,10 +119,10 @@ def train_model(X, y, model_dir):
     mse = mean_squared_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    logging.info("\nRegression Evaluation Metrics:")
-    logging.info(f"Mean Absolute Error (MAE): {mae:.2f}")
-    logging.info(f"Mean Squared Error (MSE): {mse:.2f}")
-    logging.info(f"R² Score: {r2:.2f}")
+    logging.info("\n回帰評価指標:")
+    logging.info(f"平均絶対誤差 (MAE): {mae:.2f}")
+    logging.info(f"平均二乗誤差 (MSE): {mse:.2f}")
+    logging.info(f"決定係数 (R²): {r2:.2f}")
 
     # ハイパーパラメータチューニング
     param_grid = {
@@ -141,7 +141,7 @@ def train_model(X, y, model_dir):
     )
     grid.fit(X_train_scaled, y_train)
 
-    logging.info("\nBest Hyperparameters:")
+    logging.info("\n最適なハイパーパラメータ:")
     logging.info(grid.best_params_)
 
     # 最適モデルによる予測
@@ -152,10 +152,10 @@ def train_model(X, y, model_dir):
     mse_grid = mean_squared_error(y_test, y_pred_grid)
     r2_grid = r2_score(y_test, y_pred_grid)
 
-    logging.info("\nRegression Evaluation Metrics After Hyperparameter Tuning:")
-    logging.info(f"Mean Absolute Error (MAE): {mae_grid:.2f}")
-    logging.info(f"Mean Squared Error (MSE): {mse_grid:.2f}")
-    logging.info(f"R² Score: {r2_grid:.2f}")
+    logging.info("\nハイパーパラメータ調整後の回帰評価指標:")
+    logging.info(f"平均絶対誤差 (MAE): {mae_grid:.2f}")
+    logging.info(f"平均二乗誤差 (MSE): {mse_grid:.2f}")
+    logging.info(f"決定係数 (R²): {r2_grid:.2f}")
 
     # モデル保存用ディレクトリの作成
     os.makedirs(model_dir, exist_ok=True)
@@ -163,9 +163,8 @@ def train_model(X, y, model_dir):
     # モデルとスケーラーの保存
     joblib.dump(grid.best_estimator_, os.path.join(model_dir, 'trained_model.joblib'))
     joblib.dump(scaler, os.path.join(model_dir, 'scaler.joblib'))
-    # pivot_columnsはmain関数で保存する
 
-    logging.info("\nModel and scaler have been saved to the 'model' directory.")
+    logging.info("\nモデルとスケーラーが 'model' ディレクトリに保存されました。")
 
     return grid, scaler
 
@@ -176,7 +175,7 @@ def predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir):
         if filename.endswith('.csv'):
             filepath = os.path.join(judgement_dir, filename)
             absolute_path = os.path.abspath(filepath)
-            logging.info(f"Processing judgement file: {absolute_path}")
+            logging.info(f"判定ファイルを処理中: {absolute_path}")
 
             try:
                 # CSVの読み込み
@@ -200,23 +199,23 @@ def predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir):
                 # ファイル全体の適合度（平均値）を計算
                 average_percentage = np.mean(y_pred_judgement)
 
-                logging.info(f"File: {absolute_path} - Predicted Percentage: {average_percentage:.2f}%")
+                logging.info(f"ファイル: {absolute_path} - 予測パーセンテージ: {average_percentage:.2f}%")
                 results.append({'filename': filename, 'predicted_percentage': average_percentage})
             except Exception as e:
-                logging.error(f"Error processing file {absolute_path}: {e}")
+                logging.error(f"ファイル {absolute_path} の処理中にエラーが発生しました: {e}")
                 results.append({'filename': filename, 'predicted_percentage': None})
 
     # 結果をCSVに保存
     results_df = pd.DataFrame(results)
     results_df.to_csv(os.path.join(model_dir, 'judgement_results.csv'), index=False)
-    logging.info("\nJudgement results saved to 'model/judgement_results.csv'")
+    logging.info("\n判定結果が 'model/judgement_results.csv' に保存されました。")
     logging.info(results_df)
 
 def main():
     # 環境変数 FINGERPRINT_DIR を取得。設定がない場合はデフォルトを使用。
     fingerprint_dir = os.getenv('FINGERPRINT_DIR', '/app/manager_fingerprint')
     fingerprint_dir = os.path.abspath(fingerprint_dir)  # 絶対パスに変換
-    logging.info(f"Using fingerprint directory: {fingerprint_dir}")
+    logging.info(f"使用する指紋ディレクトリ: {fingerprint_dir}")
 
     judgement_dir = 'judgement'
     model_dir = 'model'  # モデル保存用ディレクトリ
@@ -236,7 +235,7 @@ def main():
     pivot_columns = pivot_df.columns
     os.makedirs(model_dir, exist_ok=True)  # 再度確認
     joblib.dump(pivot_columns.tolist(), os.path.join(model_dir, 'pivot_columns.joblib'))
-    logging.info("\nPivot columns have been saved to the 'model' directory.")
+    logging.info("\nピボットテーブルの列情報が 'model' ディレクトリに保存されました。")
 
     # judgement ディレクトリ内のファイルに対する予測
     predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir)
