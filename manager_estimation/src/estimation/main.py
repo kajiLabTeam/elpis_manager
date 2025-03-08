@@ -20,8 +20,9 @@ logging.basicConfig(
     ]
 )
 
-# ポジティブとみなすroom_idのリスト（定数配列）
+# ポジティブとネガティブのROOM_IDリストを定義
 POSITIVE_ROOM_IDS = ['514']
+NEGATIVE_ROOM_IDS = ['0']
 
 def load_data(fingerprint_dir):
     data_list = []
@@ -32,11 +33,18 @@ def load_data(fingerprint_dir):
     for room_id in os.listdir(fingerprint_dir):
         room_path = os.path.join(fingerprint_dir, room_id)
         if os.path.isdir(room_path):
-            logging.info(f"部屋ディレクトリが見つかりました: {room_id}")
-            # room_id がポジティブサンプルリストに含まれているか確認
-            label = 1 if room_id in POSITIVE_ROOM_IDS else 0
-            label_type = '正' if label == 1 else '負'
+            # 指定されたROOM_IDリストに含まれているかをチェック
+            if room_id in POSITIVE_ROOM_IDS:
+                label = 1
+                label_type = '正'
+            elif room_id in NEGATIVE_ROOM_IDS:
+                label = 0
+                label_type = '負'
+            else:
+                logging.info(f"部屋 {room_id} は指定されたROOM_IDリストに含まれていないためスキップします。")
+                continue
 
+            logging.info(f"部屋ディレクトリが見つかりました: {room_id} （{label_type}サンプル）")
             # 各room_idディレクトリ内のCSVファイルを読み込む
             for filename in os.listdir(room_path):
                 if filename.endswith('.csv'):
@@ -170,45 +178,59 @@ def train_model(X, y, model_dir):
 
 def predict_judgement(grid, scaler, judgement_dir, pivot_columns, model_dir):
     results = []
+    # os.walkを使ってjudgementディレクトリ以下の全てのサブディレクトリとファイルを走査
+    for root, dirs, files in os.walk(judgement_dir):
+        # judgement_dirからの相対パスをディレクトリ名として取得
+        dir_relative = os.path.relpath(root, judgement_dir)
+        # ルートディレクトリの場合は明示的に指定
+        if dir_relative == '.':
+            dir_relative = judgement_dir
 
-    for filename in os.listdir(judgement_dir):
-        if filename.endswith('.csv'):
-            filepath = os.path.join(judgement_dir, filename)
-            absolute_path = os.path.abspath(filepath)
-            logging.info(f"判定ファイルを処理中: {absolute_path}")
+        for file in files:
+            if file.endswith('.csv'):
+                filepath = os.path.join(root, file)
+                absolute_path = os.path.abspath(filepath)
+                logging.info(f"判定ファイルを処理中: {absolute_path} （ディレクトリ: {dir_relative}）")
+                try:
+                    # CSVの読み込み
+                    df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
 
-            try:
-                # CSVの読み込み
-                df = pd.read_csv(filepath, header=None, names=['timestamp', 'identifier', 'rssi'])
+                    # ピボットテーブルの作成
+                    pivot_df = df.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
+                    pivot_df.fillna(-100, inplace=True)
 
-                # ピボットテーブルの作成
-                pivot_df = df.pivot_table(index='timestamp', columns='identifier', values='rssi', aggfunc='first')
-                pivot_df.fillna(-100, inplace=True)
+                    # 学習時と同じ列順に整列
+                    pivot_df = pivot_df.reindex(columns=pivot_columns, fill_value=-100)
+                    X_judgement = pivot_df.values
 
-                # 学習時のピボットテーブルと同じ列順に揃える
-                pivot_df = pivot_df.reindex(columns=pivot_columns, fill_value=-100)
+                    # スケーリング
+                    X_judgement_scaled = scaler.transform(X_judgement)
 
-                X_judgement = pivot_df.values
+                    # 予測
+                    y_pred_judgement = grid.predict(X_judgement_scaled)
 
-                # データのスケーリング
-                X_judgement_scaled = scaler.transform(X_judgement)
+                    # ファイル全体の予測パーセンテージ（平均値）を計算
+                    average_percentage = np.mean(y_pred_judgement)
 
-                # 予測
-                y_pred_judgement = grid.predict(X_judgement_scaled)
-
-                # ファイル全体の適合度（平均値）を計算
-                average_percentage = np.mean(y_pred_judgement)
-
-                logging.info(f"ファイル: {absolute_path} - 予測パーセンテージ: {average_percentage:.2f}%")
-                results.append({'filename': filename, 'predicted_percentage': average_percentage})
-            except Exception as e:
-                logging.error(f"ファイル {absolute_path} の処理中にエラーが発生しました: {e}")
-                results.append({'filename': filename, 'predicted_percentage': None})
+                    logging.info(f"ファイル: {absolute_path} - 予測パーセンテージ: {average_percentage:.2f}%")
+                    results.append({
+                        'directory': dir_relative,
+                        'filename': file,
+                        'predicted_percentage': average_percentage
+                    })
+                except Exception as e:
+                    logging.error(f"ファイル {absolute_path} の処理中にエラーが発生しました: {e}")
+                    results.append({
+                        'directory': dir_relative,
+                        'filename': file,
+                        'predicted_percentage': None
+                    })
 
     # 結果をCSVに保存
     results_df = pd.DataFrame(results)
-    results_df.to_csv(os.path.join(model_dir, 'judgement_results.csv'), index=False)
-    logging.info("\n判定結果が 'model/judgement_results.csv' に保存されました。")
+    results_csv_path = os.path.join(model_dir, 'judgement_results.csv')
+    results_df.to_csv(results_csv_path, index=False)
+    logging.info(f"\n判定結果が '{results_csv_path}' に保存されました。")
     logging.info(results_df)
 
 def main():
