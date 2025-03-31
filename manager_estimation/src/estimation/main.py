@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 
 # 部屋ID定義
-ROOM_IDS = ['513', '0']  # 正例:514、負例:0
+ROOM_IDS = ['514', '0']  # 正例:514、負例:0
 
 def load_data(fingerprint_dir):
     data_list = []

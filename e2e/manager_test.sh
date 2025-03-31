@@ -14,10 +14,7 @@ PROD_URLS=(
 
 # ディレクトリの候補を指定します
 SAMPLE_DIRS=(
-    "./manager_estimation/negative_samples"
-    "./manager_estimation/positive_samples"
-    "./echo_estimation/negative_samples"
-    "./echo_estimation/positive_samples"
+    "./manager/manager_fingerprint"
 )
 
 # Basic認証のユーザー名とパスワード（パスワードは不要ですが、curlの仕様上指定が必要です）

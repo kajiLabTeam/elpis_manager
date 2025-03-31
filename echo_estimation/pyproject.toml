@@ -7,6 +7,7 @@ authors = [
 ]
 dependencies = [
     "fastapi>=0.115.4",
+    "fpdf>=1.7.2",
     "joblib>=1.4.2",
     "matplotlib>=3.7.5",
     "numpy>=1.24.4",
@@ -37,3 +38,4 @@ packages = ["src/estimation"]
 [project.scripts]
 main = "estimation.main:main"
 app = "estimation.app:app"
+classification = "estimation.classification:main"

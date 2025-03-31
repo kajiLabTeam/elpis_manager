@@ -11,7 +11,7 @@ import os
 app = FastAPI(title="RSSI Positive-Class Probability API")
 
 MODEL_DIR = 'model'
-POSITIVE_CLASS = '513'  # 正例ラベル
+POSITIVE_CLASS = '514'  # 正例ラベル
 
 # モデル・スケーラー・pivot_columns のロード
 try:
