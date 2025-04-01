@@ -3,15 +3,15 @@
 # Go services paths
 CMD_PATH := ./cmd/server.go
 
+# Default flags for running Go services locally
+GO_FLAGS ?= -mode=local -port=8010
+
 # Define default targets
 .PHONY: build up down restart clean help \
         run-proxy run-manager run-est-model run-est-api \
         restart-proxy restart-manager restart-est-api \
-        run-test-est-api run-test-manager run-test-proxy run-test-web run-test-fingerprint \
-        db-up db-down
-
-# Default flags for running Go services locally
-GO_FLAGS ?= -mode=local -port=8010
+        run-test-est-api run-test-manager run-test-proxy run-test-web run-test-fingerprint run-test-manager-full \
+        db-up db-down run-solo
 
 # General Docker Compose commands
 build: ## Build the Docker images for all services
@@ -78,8 +78,12 @@ run-test-web: ## Run the Web e2e test
 run-test-fingerprint: ## Run the Fingerprint e2e test
 	bash ./e2e/fingerprint_test.sh
 
-run-solo:
+run-test-manager-full: ## Run the full Manager e2e test
+	bash ./e2e/manager_full_test.sh
+
+run-solo: ## Run solo manager using compose-solo.yaml
 	docker compose -f compose-solo.yaml -p manager-solo up -d
+
 # Help message
 help: ## Display this help message
 	@echo "Usage: make [target] [GO_FLAGS='-mode=local -port=8010']"
