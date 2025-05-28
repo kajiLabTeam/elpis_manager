@@ -48,6 +48,22 @@ services:
     environment:
       - TZ=Asia/Tokyo
 
+  service:
+    image: golang:1.22.5-bookworm
+    ports:
+      - 8012:8012
+    volumes:
+      - ./service:/app
+      - /etc/localtime:/etc/localtime:ro
+    working_dir: /app
+    depends_on:
+      proxy:
+        condition: service_started
+      postgres_echo:
+        condition: service_healthy
+    command: go run ./cmd/server.go
+    environment:
+      - TZ=Asia/Tokyo
   manager_estimation-model:
     image: python:3.12.7-bookworm
     working_dir: /app
