@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>大学フロアマップ表示（GeoJSON + Leaflet + 部屋ハイライト）</title>
+  <!-- Leaflet の CSS を読み込む -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+  <style>
+    /* ページ全体の余白をリセット */
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    /* 地図表示領域を全画面に */
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <!-- 地図を描画するための div -->
+  <div id="map"></div>
+
+  <!-- Leaflet の JS を読み込む -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // ──────────────────────────────
+    // 1. GeoJSON データ定義
+    //    先ほどの回答で示した「大学のフロアマップ」を GeoJSON フォーマットで定義します。
+    //    必要があれば座標を実測値に合わせて修正してください。
+    // ──────────────────────────────
+    const floorMapData = {
+      "type": "FeatureCollection",
+      "crs": {
+        "type": "name",
+        "properties": { "name": "CRS:PIXEL" }   // 緯度経度ではなく画像ピクセル座標系
+      },
+      "features": [
+        /* ---------- 左ウイング３室 (部屋) ---------- */
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "L201",
+            "name": "左 2F‐北室",
+            "type": "room",
+            "occupancy": 0,
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[320,  80], [480,  80], [480, 160], [320, 160], [320,  80]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "L202",
+            "name": "左 2F‐中室",
+            "type": "room",
+            "occupancy": 2,
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[320, 160], [480, 160], [480, 240], [320, 240], [320, 160]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "L203",
+            "name": "左 2F‐南室",
+            "type": "room",
+            "occupancy": 0,
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[320, 240], [480, 240], [480, 320], [320, 320], [320, 240]]]
+          }
+        },
+
+        /* ---------- 付帯設備（中央付近） ---------- */
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "STAIR_W",
+            "name": "西側階段",
+            "type": "facility",
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[320, 340], [400, 340], [400, 420], [320, 420], [320, 340]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "TOILET_M",
+            "name": "男子トイレ",
+            "type": "facility",
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[480, 360], [560, 360], [560, 440], [480, 440], [480, 360]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "TOILET_ACC",
+            "name": "多目的トイレ",
+            "type": "facility",
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[560, 360], [640, 360], [640, 440], [560, 440], [560, 360]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "ELEV",
+            "name": "エレベーター",
+            "type": "facility",
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[640, 360], [720, 360], [720, 440], [640, 440], [640, 360]]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "id": "STAIR_E",
+            "name": "東側階段",
+            "type": "facility",
+            "floor": 2
+          },
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[880, 360], [960, 360], [960, 440], [880, 440], [880, 360]]]
+          }
+        }
+      ]
+    };
+
+    // ──────────────────────────────
+    // 2. Leaflet マップを初期化
+    //    CRS.Simple を使って「緯度経度ではなく任意の平面座標」を扱います。
+    // ──────────────────────────────
+    const map = L.map('map', {
+      crs: L.CRS.Simple,
+      attributionControl: false,
+      minZoom: -2
+    });
+
+    // ──────────────────────────────
+    // 3. GeoJSON を読み込んでスタイル・ポップアップを設定
+    // ──────────────────────────────
+    //    各フィーチャの type に応じて初期スタイルを決定
+    function getInitialStyle(feature) {
+      switch (feature.properties.type) {
+        case 'room':
+          return { color: '#333333', weight: 1, fillColor: '#cccccc', fillOpacity: 0.3 };
+        case 'hall':
+          return { color: '#555555', weight: 1, fillColor: '#dddddd', fillOpacity: 0.2 };
+        case 'corridor':
+          return { color: '#999999', weight: 1, fillColor: '#eeeeee', fillOpacity: 0.1 };
+        case 'facility':
+          return { color: '#b22222', weight: 1, fillColor: '#f4a7a7', fillOpacity: 0.4 };
+        default:
+          return { color: '#000000', weight: 1, fillColor: '#ffffff', fillOpacity: 0.1 };
+      }
+    }
+
+    let highlightedLayer = null; // 現在ハイライト中の L.Layer を保持
+
+    const floorLayer = L.geoJSON(floorMapData, {
+      style: getInitialStyle,
+      onEachFeature: (feature, layer) => {
+        // ポップアップに部屋名や設備名を表示
+        if (feature.properties.name) {
+          layer.bindPopup(`<b>${feature.properties.name}</b><br>Type: ${feature.properties.type}`);
+        }
+      }
+    }).addTo(map);
+
+    // ──────────────────────────────
+    // 4. 地図の表示範囲を GeoJSON の境界に合わせて調整
+    // ──────────────────────────────
+    const bounds = floorLayer.getBounds();
+    map.fitBounds(bounds, { padding: [20, 20] });
+
+    // ──────────────────────────────
+    // 5. クリックした地点がどのポリゴン（部屋）に含まれるかを判定し、ハイライトする
+    //
+    //    ここでは「地図上をクリック」したときの例ですが、実際は
+    //    屋内測位サーバーから返ってくる (x,y) 座標 を e.latlng のように使えば同じ処理が可能です。
+    // ──────────────────────────────
+    map.on('click', function(e) {
+      // e.latlng は CRS.Simple なので [lat=y, lng=x] の順序で渡される
+      // 例) e.latlng = L.LatLng(200, 350) ← これは (x=350px, y=200px) に相当
+
+      let foundLayer = null;
+
+      // すべてのポリゴン（レイヤー）を走査して、クリック地点を含むものを探す
+      floorLayer.eachLayer((layer) => {
+        if (!(layer instanceof L.Polygon)) return;
+
+        // layer.getBounds() はポリゴンを包含する最小矩形を返す
+        // 今回のサンプルでは矩形を使って部屋を定義しているので
+        // getBounds().contains(e.latlng) 判定で十分です。
+        if (layer.getBounds().contains(e.latlng)) {
+          foundLayer = layer;
+        }
+      });
+
+      // もし既にハイライト中のレイヤーがあれば、元のスタイルに戻す
+      if (highlightedLayer) {
+        const origFeat = highlightedLayer.feature;
+        highlightedLayer.setStyle(getInitialStyle(origFeat));
+        highlightedLayer = null;
+      }
+
+      // クリック地点が含まれるポリゴンが見つかったら……
+      if (foundLayer) {
+        // ポリゴンのスタイルを変えて、ハイライト表示
+        foundLayer.setStyle({
+          fillColor: '#ffff00',
+          fillOpacity: 0.6,
+          color: '#ff0000',
+          weight: 2
+        });
+        highlightedLayer = foundLayer;
+
+        // ポップアップも表示しておく（任意）
+        const props = foundLayer.feature.properties;
+        foundLayer.bindPopup(`<b>現在地と推定された部屋:</b><br>${props.name} (${props.id})`).openPopup();
+      }
+    });
+
+    // ──────────────────────────────
+    // 6. （外部座標を使う例）任意の (x, y) 座標から部屋をハイライトする関数
+    //
+    //    例えば、屋内測位サーバーから { x: 350, y: 200 } のような平面座標を受け取ったら
+    //    次の `highlightByXY(350, 200)` を呼び出すだけで同じ動作になります。
+    // ──────────────────────────────
+    function highlightByXY(x, y) {
+      // Leaflet の CRS.Simple では [lat=y, lng=x] の順序
+      const clickedLatLng = L.latLng(y, x);
+
+      let found = null;
+      floorLayer.eachLayer((layer) => {
+        if (!(layer instanceof L.Polygon)) return;
+        if (layer.getBounds().contains(clickedLatLng)) {
+          found = layer;
+        }
+      });
+
+      if (highlightedLayer) {
+        const prevFeat = highlightedLayer.feature;
+        highlightedLayer.setStyle(getInitialStyle(prevFeat));
+        highlightedLayer = null;
+      }
+
+      if (found) {
+        found.setStyle({
+          fillColor: '#ffff00',
+          fillOpacity: 0.6,
+          color: '#ff0000',
+          weight: 2
+        });
+        highlightedLayer = found;
+        const p = found.feature.properties;
+        found.bindPopup(`<b>現在地と推定された部屋:</b><br>${p.name} (${p.id})`).openPopup();
+      }
+    }
+
+    // ──────────────────────────────
+    // 7. テスト例：画面読み込みから 2 秒後に (x=350, y=200) をハイライトしてみる 
+    //    （実際は不要ですが、動作確認用サンプルとして）
+    // ──────────────────────────────
+    setTimeout(() => {
+      highlightByXY(350, 200);
+    }, 1000);
+
+  </script>
+</body>
+</html>
