@@ -205,6 +205,8 @@ func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
 
 func handleQuery(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		/* ────── 1. メソッド & マルチパート解析 ────── */
 		if r.Method != http.MethodPost {
 			http.NotFound(w, r)
 			return
@@ -214,73 +216,93 @@ func handleQuery(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		/* ────── 2. パラメータ検証 ────── */
 		lat, errLat := strconv.ParseFloat(r.FormValue("latitude"), 64)
 		lon, errLon := strconv.ParseFloat(r.FormValue("longitude"), 64)
-		_, errTime := time.Parse(time.RFC3339, r.FormValue("timestamp"))
-		if errLat != nil || errLon != nil || errTime != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid lat/lon/timestamp", nil)
+		if errLat != nil || errLon != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid latitude/longitude", nil)
+			return
+		}
+		if _, err := time.Parse(time.RFC3339, r.FormValue("timestamp")); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid timestamp", err)
 			return
 		}
 
-		// 必須ファイル存在チェック（内容は無視）
-		if _, _, err := r.FormFile("wifi_data"); err != nil {
+		// 必須ファイル（内容は保管しない）存在チェック
+		if f, _, err := r.FormFile("wifi_data"); err != nil {
 			writeAPIError(w, http.StatusBadRequest, "wifi_data missing", err)
 			return
+		} else {
+			f.Close()
 		}
-		if _, _, err := r.FormFile("ble_data"); err != nil {
+		if f, _, err := r.FormFile("ble_data"); err != nil {
 			writeAPIError(w, http.StatusBadRequest, "ble_data missing", err)
 			return
+		} else {
+			f.Close()
 		}
 
-		// ── 近接パートナー検索
+		/* ────── 3. 最近傍照会サーバを DB から検索 ────── */
+		var (
+			bestID   int
+			bestURI  string
+			bestDist = math.MaxFloat64
+		)
 		rows, err := db.QueryContext(r.Context(),
 			`SELECT id, inquiry_server_uri, latitude, longitude FROM inquiry_partners`)
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "select partners failed", err)
-			return
-		}
-		defer rows.Close()
-
-		var (
-			minDist = math.MaxFloat64
-			bestID  int
-			bestURI string
-			bestLat float64
-			bestLon float64
-		)
-		for rows.Next() {
-			var id int
-			var uri string
-			var plat, plon float64
-			if err := rows.Scan(&id, &uri, &plat, &plon); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "row scan failed", err)
-				return
-			}
-			d := haversineKm(lat, lon, plat, plon)
-			if d < minDist {
-				minDist, bestID, bestURI, bestLat, bestLon = d, id, uri, plat, plon
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id int
+				var uri string
+				var plat, plon float64
+				if err := rows.Scan(&id, &uri, &plat, &plon); err == nil {
+					d := haversineKm(lat, lon, plat, plon)
+					if d < bestDist {
+						bestDist, bestID, bestURI = d, id, uri
+					}
+				}
 			}
 		}
-		if minDist < math.MaxFloat64 {
-			log.Printf("nearest partner: id=%d uri=%s (%.3f km) target=(%.6f,%.6f)", bestID, bestURI, minDist, bestLat, bestLon)
+		if bestDist < math.MaxFloat64 {
+			log.Printf("nearest partner: id=%d uri=%s (%.3f km)", bestID, bestURI, bestDist)
 		} else {
-			log.Printf("nearest partner: none (no inquiry_partners rows)")
+			log.Printf("nearest partner: none")
 		}
 
-		// ダミーレスポンス
-		stub := json.RawMessage(`{
+		/* ────── 4. ダミーレスポンス生成 ────── */
+		const floorMapJSON = `{
 		  "type":"FeatureCollection",
-		  "features":[{
-		    "type":"Feature",
-		    "geometry":{"type":"Polygon","coordinates":[[[649,938],[769,938],[769,1222],[649,1222],[649,938]]]},
-		    "properties":{"id":"R010","name":"Room010","type":"room","area":33861}
-		  }]
-		}`)
+		  "crs":{"type":"name","properties":{"name":"CRS:PIXEL"}},
+		  "features":[
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[781,91],[777,380],[84,389],[84,448],[364,448],[366,837],[84,837],[84,929],[776,932],[776,1431],[839,1431],[841,91]]]},"properties":{"id":"R073","name":"Room073","type":"room","area":354190}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[846,1289],[1088,1289],[1088,1436],[846,1436],[846,1289]]]},"properties":{"id":"R004","name":"Room004","type":"room","area":34869}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[846,989],[1092,989],[1092,1283],[846,1283],[846,989]]]},"properties":{"id":"R008","name":"Room008","type":"room","area":71467}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[649,938],[769,938],[769,1222],[649,1222],[649,938]]]},"properties":{"id":"R010","name":"Room010","type":"room","area":33861}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[459,938],[643,938],[643,1219],[459,1219],[459,938]]]},"properties":{"id":"R011","name":"Room011","type":"room","area":51433}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[209,938],[453,938],[453,1217],[209,1217],[209,938]]]},"properties":{"id":"R012","name":"Room012","type":"room","area":67544}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[84,936],[203,936],[203,1215],[84,1215],[84,936]]]},"properties":{"id":"R016","name":"Room016","type":"room","area":33388}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[846,692],[1093,692],[1093,985],[846,985],[846,692]]]},"properties":{"id":"R022","name":"Room022","type":"room","area":72050}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[847,541],[1094,541],[1094,685],[847,685],[847,541]]]},"properties":{"id":"R050","name":"Room050","type":"room","area":35691}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[427,455],[776,455],[776,871],[427,871],[427,455]]]},"properties":{"id":"R056","name":"Room056","type":"room","area":94347}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[84,580],[358,580],[358,830],[84,830],[84,580]]]},"properties":{"id":"R058","name":"Room057","type":"room","area":73746}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[84,454],[358,454],[358,574],[84,574],[84,454]]]},"properties":{"id":"R058","name":"Room058","type":"room","area":73746}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[848,390],[1093,390],[1093,534],[848,534],[848,390]]]},"properties":{"id":"R060","name":"Room060","type":"room","area":35243}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[84,101],[205,101],[205,380],[84,380],[84,101]]]},"properties":{"id":"R063","name":"Room063","type":"room","area":33763}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[211,97],[453,97],[453,379],[211,379],[211,97]]]},"properties":{"id":"R066","name":"Room066","type":"room","area":67497}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[460,94],[645,94],[645,377],[460,377],[460,94]]]},"properties":{"id":"R069","name":"Room069","type":"room","area":51855}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[652,91],[772,91],[772,374],[652,374],[652,91]]]},"properties":{"id":"R074","name":"Room074","type":"room","area":33729,"highlight":true}},
+		    {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[849,87],[1092,87],[1092,385],[849,385],[849,87]]]},"properties":{"id":"R075","name":"Room075","type":"room","area":72292}}
+		  ]
+		}`
+
 		resp := queryResp{
-			RoomID:    "R010",
-			FloorMap:  stub,
+			RoomID:    "R074",
+			FloorMap:  json.RawMessage(floorMapJSON),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		}
+
+		/* ────── 5. 返却 ────── */
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
@@ -288,6 +310,21 @@ func handleQuery(db *sql.DB) http.HandlerFunc {
 
 /*────────────── main ──────────────*/
 
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ここでは開発用に全許可。必要に応じて Origin を絞る
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+
+		// プリフライト (OPTIONS) なら 204 だけ返す
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 func main() {
 	db, err := sql.Open("postgres", dbDSN)
 	if err != nil {
@@ -304,9 +341,10 @@ func main() {
 	mux.HandleFunc("/api/register", handleRegister(db))
 	mux.HandleFunc("/api/partners/register", handlePartnerRegister(db))
 	mux.Handle("/api/query", requireBasicAuth(http.HandlerFunc(handleQuery(db))))
+	handler := withCORS(mux)
 
 	log.Printf("HTTP server listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
