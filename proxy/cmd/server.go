@@ -20,14 +20,29 @@ import (
 	_ "github.com/lib/pq"
 )
 
+/*──────────────────────────── Config ────────────────────────────*/
+
 type Config struct {
 	Database struct {
 		ConnStr string `toml:"conn_str"`
 	} `toml:"database"`
+
 	Server struct {
-		Port int `toml:"port"`
+		Scheme string `toml:"scheme"` // "http" or "https"
+		Host   string `toml:"host"`   // FQDN (e.g. inquiry.example.com)
+		Port   int    `toml:"port"`
 	} `toml:"server"`
+
+	IPS struct {
+		RegisterOnStartup bool    `toml:"register_on_startup"` // true なら起動時に登録実施
+		RegisterURL       string  `toml:"register_url"`        // https://ips.example.com/api/partners/register
+		Latitude          float64 `toml:"latitude"`
+		Longitude         float64 `toml:"longitude"`
+		Description       string  `toml:"description"`
+	} `toml:"ips"`
 }
+
+/*──────────────────────────── API 型 ────────────────────────────*/
 
 type RegisterRequest struct {
 	Scheme string `json:"scheme"`
@@ -54,12 +69,16 @@ type InquiryResponse struct {
 	Message          string  `json:"message,omitempty"`
 }
 
+/*──────────────────────────── 変数 ────────────────────────────*/
+
 var (
 	db           *sql.DB
 	client       = &http.Client{Timeout: 10 * time.Second}
 	queryCounter int
 	counterMutex = &sync.Mutex{}
 )
+
+/*──────────────────────────── main ────────────────────────────*/
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -72,29 +91,90 @@ func main() {
 		log.Fatalf("[FATAL] 設定ファイルの読み込みエラー: %v", err)
 	}
 
+	/*── データベース接続 ──*/
 	var err error
 	db, err = sql.Open("postgres", config.Database.ConnStr)
 	if err != nil {
 		log.Fatalf("[FATAL] データベースへの接続エラー: %v", err)
 	}
 	defer db.Close()
-
 	if err := db.Ping(); err != nil {
 		log.Fatalf("[FATAL] データベースに接続できません: %v", err)
 	}
 	log.Printf("[INFO] データベースに接続しました。")
 
+	/*── 起動時に IPS へ自己登録 ──*/
+	if config.IPS.RegisterOnStartup {
+		if err := registerPartner(&config); err != nil {
+			log.Printf("[WARN] パートナー登録に失敗しましたがサーバーは継続します: %v", err)
+		}
+	}
+
+	/*── HTTP ハンドラ ──*/
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/inquiry", inquiryHandler)
 
+	/*── バックグラウンド処理 ──*/
 	go cleanupCache()
 
+	/*── HTTP サーバ起動 ──*/
 	address := fmt.Sprintf(":%d", config.Server.Port)
 	log.Printf("[INFO] サーバーがポート %d で起動しました\n", config.Server.Port)
 	if err := http.ListenAndServe(address, nil); err != nil {
 		log.Fatalf("[FATAL] サーバーの起動に失敗しました: %v", err)
 	}
 }
+
+/*──────────────────────────── IPS 登録 ────────────────────────────*/
+
+func registerPartner(cfg *Config) error {
+	log.Printf("[INFO] 起動時パートナー登録を実行します …")
+
+	type partnerReq struct {
+		InquiryServerURI string  `json:"inquiry_server_uri"`
+		Port             int     `json:"port"`
+		Latitude         float64 `json:"latitude"`
+		Longitude        float64 `json:"longitude"`
+		Description      string  `json:"description"`
+	}
+
+	payload := partnerReq{
+		InquiryServerURI: fmt.Sprintf("%s://%s", cfg.Server.Scheme, cfg.Server.Host),
+		Port:             cfg.Server.Port,
+		Latitude:         cfg.IPS.Latitude,
+		Longitude:        cfg.IPS.Longitude,
+		Description:      cfg.IPS.Description,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		return fmt.Errorf("JSON エンコード失敗: %w", err)
+	}
+
+	resp, err := client.Post(cfg.IPS.RegisterURL, "application/json", &buf)
+	if err != nil {
+		return fmt.Errorf("登録リクエスト送信失敗: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var partnerResp struct {
+		Message   string `json:"message"`
+		PartnerID string `json:"partner_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&partnerResp); err != nil {
+		return fmt.Errorf("レスポンスデコード失敗: %w", err)
+	}
+
+	log.Printf("[INFO] パートナー登録成功: %s (partner_id=%s)", partnerResp.Message, partnerResp.PartnerID)
+	return nil
+}
+
+/*──────────────────────────── /api/register ────────────────────────────*/
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()

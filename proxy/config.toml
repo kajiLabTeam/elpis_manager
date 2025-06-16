@@ -1,7 +1,14 @@
-# config.toml
-
 [database]
 conn_str = "postgres://myuser:mypassword@postgres_proxy:5432/proxydb?sslmode=disable"
 
 [server]
-port = 8080
+scheme = "http"
+host   = "proxy"
+port   = 8080
+
+[ips]
+register_on_startup = true
+register_url        = "http://service:8012/api/partners/register"
+latitude            = 35.123456
+longitude           = 136.123456
+description         = "愛知工業大学14号館"
