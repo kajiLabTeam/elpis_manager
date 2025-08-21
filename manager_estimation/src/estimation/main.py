@@ -22,8 +22,8 @@ JUDGE_NEG_A = '0'
 JUDGE_NEG_B = '514'
 
 # --- 学習抽出数（timestamp単位） ---
-TRAIN_POS = 120     # 正例
-TRAIN_NEG = 120 
+TRAIN_POS = 1000     # 正例
+TRAIN_NEG = 1000
 
 # --- 評価抽出数（judgement） ---
 EVAL_POS = 125
