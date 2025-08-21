@@ -23,7 +23,7 @@ JUDGE_NEG_B = '514'
 
 # --- 学習抽出数（timestamp単位） ---
 TRAIN_POS = 80     # 正例
-TRAIN_NEG = 120    # 負例（←要望どおり120に変更）
+TRAIN_NEG = 80 
 
 # --- 評価抽出数（judgement） ---
 EVAL_POS = 125
