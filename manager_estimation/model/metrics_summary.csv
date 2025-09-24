@@ -1,11 +1,11 @@
 metric,value
-accuracy,0.5161290322580645
+accuracy,0.928
 precision_macro,0.5
-recall_macro,0.25806451612903225
-f1_macro,0.3404255319148936
+recall_macro,0.464
+f1_macro,0.48132780082987553
 precision_weighted,1.0
-recall_weighted,0.5161290322580645
-f1_weighted,0.6808510638297872
+recall_weighted,0.928
+f1_weighted,0.9626556016597511
 roc_auc(binary_only),
-pr_auc(binary_only),0.0
+pr_auc(binary_only),1.0
 best_params,{}
