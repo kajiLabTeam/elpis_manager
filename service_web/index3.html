@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <title>大学フロアマップ表示（GeoJSON + Leaflet + 部屋ハイライト）</title>
+    <title>3階フロアマップ表示（GeoJSON + Leaflet + 部屋ハイライト）</title>
     <!-- Leaflet の CSS を読み込む -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <style>
@@ -46,12 +46,8 @@
                 [
                   [780, -120],
                   [780, 390],
-                  [80, 390],
-                  [80, 440],
-                  [370, 440],
-                  [370, 840],
-                  [80, 840],
-                  [80, 920],
+                  [550, 390],
+                  [550, 920],
                   [780, 920],
                   [780, 1220],
                   [839, 1220],
@@ -64,30 +60,6 @@
               name: "390",
               type: "Hallway",
               area: 354190,
-            },
-          },
-
-
-
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [850, 920],
-                  [1090, 920],
-                  [1090, 1220],
-                  [850, 1220],
-                  [850, 990],
-                ],
-              ],
-            },
-            properties: {
-              id: "307",
-              name: "307",
-              type: "room",
-              area: 71467,
             },
           },
 
@@ -119,17 +91,16 @@
               type: "Polygon",
               coordinates: [
                 [
-                  [460, 930],
+                  [550, 930],
                   [640, 930],
                   [640, 1220],
-                  [460, 1220],
-                  [460, 930],
+                  [550, 1220],
                 ],
               ],
             },
             properties: {
-              id: "306",
-              name: "306",
+              id: "303",
+              name: "303",
               type: "room",
               area: 51433,
             },
@@ -141,80 +112,16 @@
               type: "Polygon",
               coordinates: [
                 [
-                  [210, 930],
-                  [450, 930],
-                  [450, 1220],
-                  [210, 1220],
-                  [210, 930],
-                ],
-              ],
-            },
-            properties: {
-              id: "305",
-              name: "305",
-              type: "room",
-              area: 67544,
-            },
-          },
-
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [80, 930],
-                  [200, 930],
-                  [200, 1220],
-                  [80, 1220],
-                  [80, 930],
+                  [1090, 690],
+                  [1090, 910],
+                  [850, 910],
+                  [850, 690],
                 ],
               ],
             },
             properties: {
               id: "304",
               name: "304",
-              type: "room",
-              area: 33388,
-            },
-          },
-
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [1090, 690],
-                  [1090, 800],
-                  [850, 800],
-                  [850, 690],
-                ],
-              ],
-            },
-            properties: {
-              id: "309",
-              name: "309",
-              type: "room",
-              area: 72050,
-            },
-          },
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [1090, 810],
-                  [1090, 910],
-                  [850, 910],
-                  [850, 810],
-                ],
-              ],
-            },
-            properties: {
-              id: "308",
-              name: "308",
               type: "room",
               area: 72050,
             },
@@ -235,8 +142,8 @@
               ],
             },
             properties: {
-              id: "310",
-              name: "310",
+              id: "305",
+              name: "305",
               type: "room",
               area: 35691,
             },
@@ -249,17 +156,16 @@
               type: "Polygon",
               coordinates: [
                 [
-                  [430, 450],
+                  [630, 450],
                   [770, 450],
                   [770, 870],
-                  [430, 870],
-                  [430, 450],
+                  [630, 870],
                 ],
               ],
             },
             properties: {
               id: "391",
-              name: "591 Free Space",
+              name: "391",
               type: "room",
               area: 94347,
             },
@@ -271,30 +177,10 @@
               type: "Polygon",
               coordinates: [
                 [
-                  [80, 710],
-                  [360, 710],
-                  [360, 830],
-                  [80, 830],
-                ],
-              ],
-            },
-            properties: {
-              id: "303",
-              name: "303",
-              type: "room",
-              area: 73746,
-            },
-          },
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [360, 580],
-                  [360, 700],
-                  [80, 700],
-                  [80, 580],
+                  [80, 650],
+                  [540, 650],
+                  [540, 1220],
+                  [80, 1220],
                 ],
               ],
             },
@@ -312,11 +198,10 @@
               type: "Polygon",
               coordinates: [
                 [
-                  [80, 450],
-                  [360, 450],
-                  [360, 570],
-                  [80, 570],
-                  [80, 450],
+                  [540, 90],
+                  [540, 640],
+                  [80, 640],
+                  [80, 90],
                 ],
               ],
             },
@@ -324,73 +209,26 @@
               id: "301",
               name: "301",
               type: "room",
-              area: 73746,
-            },
-          },
-
-
-
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [80, 90],
-                  [200, 90],
-                  [200, 380],
-                  [80, 380],
-                  [80, 90],
-                ],
-              ],
-            },
-            properties: {
-              id: "315",
-              name: "315",
-              type: "room",
               area: 33763,
             },
           },
-
           {
             type: "Feature",
             geometry: {
               type: "Polygon",
               coordinates: [
                 [
-                  [210, 90],
-                  [450, 90],
-                  [450, 380],
-                  [210, 380],
-                  [210, 90],
-                ],
-              ],
-            },
-            properties: {
-              id: "314",
-              name: "314",
-              type: "room",
-              area: 67497,
-            },
-          },
-
-          {
-            type: "Feature",
-            geometry: {
-              type: "Polygon",
-              coordinates: [
-                [
-                  [460, 90],
+                  [550, 90],
                   [640, 90],
                   [640, 380],
-                  [460, 380],
-                  [460, 90],
+                  [550, 380],
+
                 ],
               ],
             },
             properties: {
-              id: "313",
-              name: "313",
+              id: "308",
+              name: "308",
               type: "room",
               area: 51855,
             },
@@ -455,8 +293,8 @@
               ],
             },
             properties: {
-              id: "311",
-              name: "311",
+              id: "306",
+              name: "306",
               type: "room",
               area: 72292,
             },
@@ -475,12 +313,13 @@
               ],
             },
             properties: {
-              id: "312",
-              name: "312",
+              id: "307",
+              name: "307",
               type: "room",
               area: 72292,
             },
           },
+          
         ],
       };
 
