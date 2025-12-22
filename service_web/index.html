@@ -11,14 +11,53 @@
         padding: 0;
         height: 100%;
       }
+      body {
+        font-family: "Noto Sans JP", "Helvetica Neue", "Segoe UI", system-ui, -apple-system, sans-serif;
+        color: #222;
+        position: relative;
+      }
       #map {
         width: 100%;
         height: 100%;
+      }
+      #info {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 1000;
+        min-width: 240px;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        padding: 12px 14px;
+        backdrop-filter: blur(6px);
+      }
+      #info .label {
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      #info .value {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      #info .meta {
+        font-size: 12px;
+        color: #444;
+        line-height: 1.5;
       }
     </style>
   </head>
   <body>
     <div id="map"></div>
+    <div id="info">
+      <div class="label">所在推定</div>
+      <div class="value">照会中...</div>
+      <div class="meta">Wi‑Fi / BLE データを送信して推定します。</div>
+    </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script>
@@ -36,6 +75,7 @@
       // 空レイヤーを先に用意（API レスポンス到着後に差し替える）
       let floorLayer = L.layerGroup().addTo(map);
       let highlightedLayer = null;
+      const infoBox = document.getElementById("info");
 
       // GeoJSON 毎に塗り分ける基本スタイル
       function getInitialStyle(feature) {
@@ -98,6 +138,28 @@
         return res.json();
       }
 
+      function extractFloor(roomId) {
+        const match = (roomId || "").match(/[1-9]/);
+        return match ? Number(match[0]) : null;
+      }
+
+      function updateInfoBox(data) {
+        const { room_id, organization, percentage_processed, timestamp } = data || {};
+        const floor = extractFloor(room_id);
+        const confidence = typeof percentage_processed === "number" ? `${percentage_processed.toFixed(1)}%` : "-";
+        const timeText = timestamp ? new Date(timestamp).toLocaleString("ja-JP") : "-";
+
+        infoBox.innerHTML = `
+          <div class="label">所在推定</div>
+          <div class="value">${room_id ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）` : "未取得"}</div>
+          <div class="meta">
+            組織: ${organization || "-"}<br />
+            確信度: ${confidence}<br />
+            応答時刻: ${timeText}
+          </div>
+        `;
+      }
+
       async function init() {
         try {
           const data = await queryServer();
@@ -118,9 +180,15 @@
 
           // ── 推定部屋をハイライト ── //
           highlightRoomById(room_id);
+          updateInfoBox(data);
         } catch (e) {
           alert("API 呼び出し失敗: " + e);
           console.error(e);
+          infoBox.innerHTML = `
+            <div class="label">所在推定</div>
+            <div class="value">取得に失敗しました</div>
+            <div class="meta">エラー: ${e}</div>
+          `;
         }
       }
 

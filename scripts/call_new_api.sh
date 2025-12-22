@@ -52,7 +52,7 @@ $now,2E:3C:A8:03:7C:0A,-70,0000FEAA-0000-1000-8000-00805F9B34FB
 EOF
 
 SYSTEM_URI="${SYSTEM_URI:-manager}"
-ROOM_ID="${ROOM_ID:-R066}"
+ROOM_ID="${ROOM_ID:-101}"
 SYSTEM_PORT="${SYSTEM_PORT:-8010}"
 
 echo "== 1) service registration -> $PROXY_BASE/api/service/register"

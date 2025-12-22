@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -92,10 +93,17 @@ type organizationWithRoom struct {
 /*──────────────────────────── 変数 ────────────────────────────*/
 
 var (
-	db           *sql.DB
-	client       = &http.Client{Timeout: 10 * time.Second}
-	queryCounter int
-	counterMutex = &sync.Mutex{}
+	db            *sql.DB
+	client        = &http.Client{Timeout: 10 * time.Second}
+	queryCounter  int
+	counterMutex  = &sync.Mutex{}
+	floorMapCache sync.Map
+	floorMapDir   = func() string {
+		if v := os.Getenv("FLOOR_MAP_DIR"); v != "" {
+			return v
+		}
+		return "floor_maps"
+	}()
 )
 
 /*──────────────────────────── main ────────────────────────────*/
@@ -416,101 +424,40 @@ func loadOrganizationsWithRooms() ([]organizationWithRoom, error) {
 	return organizations, nil
 }
 
-const floorMapJSON = `{
-  "type": "FeatureCollection",
-  "crs": { "type": "name", "properties": { "name": "CRS:PIXEL" } },
-  "features": [
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[780,91],[780,390],[80,390],[80,440],[370,440],[370,840],[80,840],[80,920],[780,920],[780,1431],[839,1431],[841,91]]] },
-      "properties": { "id": "R073","name": "Room073","type": "room","area": 354190 }},
+func inferFloorFromRoomID(roomID string) (int, error) {
+	for _, ch := range roomID {
+		if ch >= '1' && ch <= '9' {
+			return int(ch - '0'), nil
+		}
+	}
+	return 0, fmt.Errorf("room_id に 1-9 の数字が含まれていません: %s", roomID)
+}
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,1290],[1090,1290],[1090,1430],[850,1430],[850,1290]]]},
-      "properties": { "id": "R004","name": "Room004","type": "room","area": 34869 }},
+func loadFloorMap(roomID string) (json.RawMessage, error) {
+	floor, err := inferFloorFromRoomID(roomID)
+	if err != nil {
+		return nil, err
+	}
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,990],[1090,990],[1090,1280],[850,1280],[850,990]]]},
-      "properties": { "id": "R008","name": "Room008","type": "room","area": 71467 }},
+	if cached, ok := floorMapCache.Load(floor); ok {
+		if v, ok := cached.(json.RawMessage); ok {
+			return v, nil
+		}
+	}
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[650,930],[770,930],[770,1220],[650,1220],[650,930]]]},
-      "properties": { "id": "R010","name": "Room010","type": "room","area": 33861 }},
+	fileName := fmt.Sprintf("floor%d.json", floor)
+	path := filepath.Join(floorMapDir, fileName)
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[460,930],[640,930],[640,1220],[460,1220],[460,930]]]},
-      "properties": { "id": "R011","name": "Room011","type": "room","area": 51433 }},
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("フロアマップ読み込み失敗 (%s): %w", path, err)
+	}
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[210,930],[450,930],[450,1220],[210,1220],[210,930]]]},
-      "properties": { "id": "R012","name": "Room012","type": "room","area": 67544 }},
+	raw := json.RawMessage(data)
+	floorMapCache.Store(floor, raw)
 
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[80,930],[200,930],[200,1220],[80,1220],[80,930]]]},
-      "properties": { "id": "R016","name": "Room016","type": "room","area": 33388 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,690],[1090,690],[1090,980],[850,980],[850,690]]]},
-      "properties": { "id": "R022","name": "Room022","type": "room","area": 72050 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,540],[1090,540],[1090,680],[850,680],[850,540]]]},
-      "properties": { "id": "R050","name": "Room050","type": "room","area": 35691 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[430,450],[770,450],[770,870],[430,870],[430,450]]]},
-      "properties": { "id": "R056","name": "Room056","type": "room","area": 94347 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[80,580],[360,580],[360,830],[80,830],[80,580]]]},
-      "properties": { "id": "R057","name": "Room057","type": "room","area": 73746 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[80,450],[360,450],[360,570],[80,570],[80,450]]]},
-      "properties": { "id": "R058","name": "Room058","type": "room","area": 73746 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,390],[1090,390],[1090,535],[850,535],[850,390]]]},
-      "properties": { "id": "R060","name": "Room060","type": "room","area": 35243 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[80,90],[200,90],[200,380],[80,380],[80,90]]]},
-      "properties": { "id": "R063","name": "Room063","type": "room","area": 33763 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[210,90],[450,90],[450,380],[210,380],[210,90]]]},
-      "properties": { "id": "R066","name": "Room066","type": "room","area": 67497 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[460,90],[640,90],[640,380],[460,380],[460,90]]]},
-      "properties": { "id": "R069","name": "Room069","type": "room","area": 51855 }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[650,90],[770,90],[770,380],[650,380],[650,90]]]},
-      "properties": { "id": "R074","name": "Room074","type": "room","area": 33729,"highlight": true }},
-
-    { "type": "Feature",
-      "geometry": { "type": "Polygon",
-        "coordinates": [[[850,90],[1090,90],[1090,380],[850,380],[850,90]]]},
-      "properties": { "id": "R075","name": "Room075","type": "room","area": 72292 }}
-  ]
-}`
+	return raw, nil
+}
 
 type serviceInquiryResult struct {
 	org        organizationWithRoom
@@ -617,9 +564,16 @@ func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	floorMap, err := loadFloorMap(best.org.RoomID)
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] フロアマップの取得に失敗しました (room_id=%s): %v", requestID, best.org.RoomID, err)
+		http.Error(w, "フロアマップの取得に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
 	resp := ServiceInquiryResponse{
 		RoomID:              best.org.RoomID,
-		FloorMap:            json.RawMessage(floorMapJSON),
+		FloorMap:            floorMap,
 		PercentageProcessed: float64(best.percentage),
 		Organization:        fmt.Sprintf("%s://%s:%d", best.org.Scheme, best.org.APIEndpoint, best.org.PortNumber),
 	}

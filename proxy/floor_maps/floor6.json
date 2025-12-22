@@ -1,0 +1,737 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "CRS:PIXEL"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              780,
+              -120
+            ],
+            [
+              780,
+              390
+            ],
+            [
+              80,
+              390
+            ],
+            [
+              80,
+              440
+            ],
+            [
+              370,
+              440
+            ],
+            [
+              370,
+              840
+            ],
+            [
+              80,
+              840
+            ],
+            [
+              80,
+              920
+            ],
+            [
+              780,
+              920
+            ],
+            [
+              780,
+              1220
+            ],
+            [
+              839,
+              1220
+            ],
+            [
+              841,
+              -120
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "690",
+        "name": "690",
+        "type": "Hallway",
+        "area": 354190
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              850,
+              920
+            ],
+            [
+              1090,
+              920
+            ],
+            [
+              1090,
+              1220
+            ],
+            [
+              850,
+              1220
+            ],
+            [
+              850,
+              990
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "607",
+        "name": "607",
+        "type": "room",
+        "area": 71467
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              650,
+              930
+            ],
+            [
+              770,
+              930
+            ],
+            [
+              770,
+              1220
+            ],
+            [
+              650,
+              1220
+            ],
+            [
+              650,
+              930
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "698",
+        "name": "698",
+        "type": "stair",
+        "area": 33861
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              460,
+              930
+            ],
+            [
+              640,
+              930
+            ],
+            [
+              640,
+              1220
+            ],
+            [
+              460,
+              1220
+            ],
+            [
+              460,
+              930
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "606",
+        "name": "606",
+        "type": "room",
+        "area": 51433
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              210,
+              930
+            ],
+            [
+              450,
+              930
+            ],
+            [
+              450,
+              1220
+            ],
+            [
+              210,
+              1220
+            ],
+            [
+              210,
+              930
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "605",
+        "name": "605",
+        "type": "room",
+        "area": 67544
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              80,
+              930
+            ],
+            [
+              200,
+              930
+            ],
+            [
+              200,
+              1220
+            ],
+            [
+              80,
+              1220
+            ],
+            [
+              80,
+              930
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "604",
+        "name": "604",
+        "type": "room",
+        "area": 33388
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              1090,
+              690
+            ],
+            [
+              1090,
+              800
+            ],
+            [
+              850,
+              800
+            ],
+            [
+              850,
+              690
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "609",
+        "name": "609",
+        "type": "room",
+        "area": 72050
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              1090,
+              810
+            ],
+            [
+              1090,
+              910
+            ],
+            [
+              850,
+              910
+            ],
+            [
+              850,
+              810
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "608",
+        "name": "608",
+        "type": "room",
+        "area": 72050
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              850,
+              390
+            ],
+            [
+              1090,
+              390
+            ],
+            [
+              1090,
+              680
+            ],
+            [
+              850,
+              680
+            ],
+            [
+              850,
+              540
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "610",
+        "name": "610",
+        "type": "room",
+        "area": 35691
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              430,
+              450
+            ],
+            [
+              770,
+              450
+            ],
+            [
+              770,
+              870
+            ],
+            [
+              430,
+              870
+            ],
+            [
+              430,
+              450
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "691",
+        "name": "691 Free Space",
+        "type": "room",
+        "area": 94347
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              80,
+              710
+            ],
+            [
+              360,
+              710
+            ],
+            [
+              360,
+              830
+            ],
+            [
+              80,
+              830
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "603",
+        "name": "603",
+        "type": "room",
+        "area": 73746
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              360,
+              580
+            ],
+            [
+              360,
+              700
+            ],
+            [
+              80,
+              700
+            ],
+            [
+              80,
+              580
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "602",
+        "name": "602",
+        "type": "room",
+        "area": 73746
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              80,
+              450
+            ],
+            [
+              360,
+              450
+            ],
+            [
+              360,
+              570
+            ],
+            [
+              80,
+              570
+            ],
+            [
+              80,
+              450
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "601",
+        "name": "601",
+        "type": "room",
+        "area": 73746
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              80,
+              90
+            ],
+            [
+              200,
+              90
+            ],
+            [
+              200,
+              380
+            ],
+            [
+              80,
+              380
+            ],
+            [
+              80,
+              90
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "615",
+        "name": "615",
+        "type": "room",
+        "area": 33763
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              210,
+              90
+            ],
+            [
+              450,
+              90
+            ],
+            [
+              450,
+              380
+            ],
+            [
+              210,
+              380
+            ],
+            [
+              210,
+              90
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "614",
+        "name": "614",
+        "type": "room",
+        "area": 67497
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              460,
+              90
+            ],
+            [
+              640,
+              90
+            ],
+            [
+              640,
+              380
+            ],
+            [
+              460,
+              380
+            ],
+            [
+              460,
+              90
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "613",
+        "name": "613",
+        "type": "room",
+        "area": 51855
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              650,
+              90
+            ],
+            [
+              770,
+              90
+            ],
+            [
+              770,
+              380
+            ],
+            [
+              650,
+              380
+            ],
+            [
+              650,
+              90
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "697",
+        "name": "697",
+        "type": "stair",
+        "area": 33729,
+        "highlight": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              770,
+              -120
+            ],
+            [
+              770,
+              80
+            ],
+            [
+              600,
+              80
+            ],
+            [
+              600,
+              -120
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "696",
+        "name": "696",
+        "type": "toilet",
+        "area": 33729,
+        "highlight": true
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              850,
+              90
+            ],
+            [
+              1090,
+              90
+            ],
+            [
+              1090,
+              380
+            ],
+            [
+              850,
+              380
+            ],
+            [
+              850,
+              90
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "611",
+        "name": "611",
+        "type": "room",
+        "area": 72292
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              1090,
+              80
+            ],
+            [
+              1090,
+              -120
+            ],
+            [
+              850,
+              -120
+            ],
+            [
+              850,
+              80
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "id": "612",
+        "name": "612",
+        "type": "room",
+        "area": 72292
+      }
+    }
+  ]
+}
