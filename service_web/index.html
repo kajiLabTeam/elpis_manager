@@ -23,8 +23,8 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script>
       /*──────────────────────── Configuration ───────────────────────*/
-      // ① API エンドポイント
-      const API_URL = "http://localhost:8012/api/query";
+      // ① 連合照会用 API エンドポイント（service -> proxy 経由）
+      const API_URL = "http://localhost:8012/api/proxy/inquiry";
       // ② Basic 認証（BASIC_AUTH_USER を使わないなら "" にする）
       const AUTH_HEADER = "Basic dXNlcjpQYXNzV29yZEAxMjM="; // user:PassWord@123
       // ③ 送信する緯度経度（デモ用固定値）

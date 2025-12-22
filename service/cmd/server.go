@@ -3,13 +3,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strconv"
@@ -22,10 +25,11 @@ import (
 /*────────────── Config ──────────────*/
 
 const (
-	addr      = ":8012"
-	dbDSN     = "postgres://myuser:mypassword@postgres_service:5432/servicedb?sslmode=disable"
-	dbTimeout = 5 * time.Second
-	maxMemory = 10 << 20 // multipart parse size (10 MiB)
+	addr                   = ":8012"
+	dbDSN                  = "postgres://myuser:mypassword@postgres_service:5432/servicedb?sslmode=disable"
+	dbTimeout              = 5 * time.Second
+	maxMemory              = 10 << 20 // multipart parse size (10 MiB)
+	defaultProxyInquiryURL = "http://proxy:8080/api/service/inquiry"
 )
 
 /*────────────── Helpers ──────────────*/
@@ -191,6 +195,13 @@ type queryResp struct {
 	RoomID    string          `json:"room_id"`
 	FloorMap  json.RawMessage `json:"floor_map"`
 	Timestamp string          `json:"timestamp"`
+}
+
+type proxyInquiryResp struct {
+	RoomID              string          `json:"room_id"`
+	FloorMap            json.RawMessage `json:"floor_map"`
+	PercentageProcessed float64         `json:"percentage_processed"`
+	Organization        string          `json:"organization"`
 }
 
 func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
@@ -379,6 +390,123 @@ func handleQuery(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+/*────────────── /api/proxy/inquiry ──────────────*/
+
+func resolveProxyInquiryURL() string {
+	if v := os.Getenv("PROXY_SERVICE_INQUIRY_URL"); v != "" {
+		return v
+	}
+	return defaultProxyInquiryURL
+}
+
+func readUploadBytes(r *http.Request, field string) ([]byte, error) {
+	file, _, err := r.FormFile(field)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+func handleProxyInquiry(proxyURL string, client *http.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseMultipartForm(maxMemory); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "multipart parse error", err)
+			return
+		}
+
+		wifiBytes, err := readUploadBytes(r, "wifi_data")
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "wifi_data missing", err)
+			return
+		}
+		bleBytes, err := readUploadBytes(r, "ble_data")
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "ble_data missing", err)
+			return
+		}
+
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+
+		wifiPart, err := writer.CreateFormFile("wifi_data", "wifi.csv")
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to create wifi part", err)
+			return
+		}
+		if _, err := wifiPart.Write(wifiBytes); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to write wifi data", err)
+			return
+		}
+
+		blePart, err := writer.CreateFormFile("ble_data", "ble.csv")
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to create ble part", err)
+			return
+		}
+		if _, err := blePart.Write(bleBytes); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to write ble data", err)
+			return
+		}
+
+		if err := writer.Close(); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to finalize multipart body", err)
+			return
+		}
+
+		req, err := http.NewRequest(http.MethodPost, proxyURL, &buf)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to build proxy request", err)
+			return
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		resp, err := client.Do(req)
+		if err != nil {
+			writeAPIError(w, http.StatusBadGateway, "proxy request failed", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			msg := fmt.Sprintf("proxy responded with status %d", resp.StatusCode)
+			if len(body) > 0 {
+				msg = fmt.Sprintf("%s: %s", msg, strings.TrimSpace(string(body)))
+			}
+			writeAPIError(w, resp.StatusCode, msg, nil)
+			return
+		}
+
+		var proxyResp proxyInquiryResp
+		if err := json.NewDecoder(resp.Body).Decode(&proxyResp); err != nil {
+			writeAPIError(w, http.StatusBadGateway, "failed to decode proxy response", err)
+			return
+		}
+
+		out := struct {
+			RoomID              string          `json:"room_id"`
+			FloorMap            json.RawMessage `json:"floor_map"`
+			PercentageProcessed float64         `json:"percentage_processed"`
+			Organization        string          `json:"organization"`
+			Timestamp           string          `json:"timestamp"`
+		}{
+			RoomID:              proxyResp.RoomID,
+			FloorMap:            proxyResp.FloorMap,
+			PercentageProcessed: proxyResp.PercentageProcessed,
+			Organization:        proxyResp.Organization,
+			Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	}
+}
+
 /*────────────── main ──────────────*/
 
 func withCORS(next http.Handler) http.Handler {
@@ -408,10 +536,14 @@ func main() {
 	}
 	log.Println("✅ connected to Postgres")
 
+	proxyURL := resolveProxyInquiryURL()
+	proxyClient := &http.Client{Timeout: 10 * time.Second}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/register", handleRegister(db))
 	mux.HandleFunc("/api/partners/register", handlePartnerRegister(db))
 	mux.Handle("/api/query", requireBasicAuth(http.HandlerFunc(handleQuery(db))))
+	mux.Handle("/api/proxy/inquiry", requireBasicAuth(handleProxyInquiry(proxyURL, proxyClient)))
 	handler := withCORS(mux)
 
 	log.Printf("HTTP server listening on %s", addr)

@@ -69,6 +69,26 @@ type InquiryResponse struct {
 	Message          string  `json:"message,omitempty"`
 }
 
+type ServiceRegisterRequest struct {
+	SystemURI string `json:"system_uri"`
+	RoomID    string `json:"roomID"`
+	Port      int    `json:"port"`
+}
+
+type ServiceInquiryResponse struct {
+	RoomID              string          `json:"room_id"`
+	FloorMap            json.RawMessage `json:"floor_map"`
+	PercentageProcessed float64         `json:"percentage_processed"`
+	Organization        string          `json:"organization"`
+}
+
+type organizationWithRoom struct {
+	Scheme      string
+	APIEndpoint string
+	PortNumber  int
+	RoomID      string
+}
+
 /*──────────────────────────── 変数 ────────────────────────────*/
 
 var (
@@ -113,6 +133,8 @@ func main() {
 	/*── HTTP ハンドラ ──*/
 	http.HandleFunc("/api/register", registerHandler)
 	http.HandleFunc("/api/inquiry", inquiryHandler)
+	http.HandleFunc("/api/service/register", serviceRegisterHandler)
+	http.HandleFunc("/api/service/inquiry", serviceInquiryHandler)
 
 	/*── バックグラウンド処理 ──*/
 	go cleanupCache()
@@ -294,6 +316,322 @@ func handleRegisterGet(w http.ResponseWriter, r *http.Request, requestID string)
 	}
 
 	log.Printf("[REQUEST_ID: %s] GET /api/register レスポンスをクライアントに送信しました。組織数: %d", requestID, len(organizations))
+}
+
+/*──────────────────────────── /api/service/register ────────────────────────────*/
+
+func serviceRegisterHandler(w http.ResponseWriter, r *http.Request) {
+	requestID := uuid.New().String()
+	log.Printf("[REQUEST_ID: %s] /api/service/register エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
+
+	if r.Method != http.MethodPost {
+		log.Printf("[REQUEST_ID: %s][WARN] 許可されていないメソッド: %s, パス: %s", requestID, r.Method, r.URL.Path)
+		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ServiceRegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONデコードエラー: %v", requestID, err)
+		http.Error(w, "リクエストの形式が正しくありません", http.StatusBadRequest)
+		return
+	}
+
+	if req.SystemURI == "" || req.RoomID == "" || req.Port == 0 {
+		log.Printf("[REQUEST_ID: %s][ERROR] 不足している項目があります: %+v", requestID, req)
+		http.Error(w, "system_uri, roomID, port は必須です", http.StatusBadRequest)
+		return
+	}
+
+	query := `
+        INSERT INTO service_registrations (system_uri, port_number, room_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (system_uri)
+        DO UPDATE SET port_number = EXCLUDED.port_number, room_id = EXCLUDED.room_id, created_at = CURRENT_TIMESTAMP
+    `
+	result, err := db.Exec(query, req.SystemURI, req.Port, req.RoomID)
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] データベースエラー: %v", requestID, err)
+		http.Error(w, "内部サーバーエラーが発生しました", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] RowsAffected の取得に失敗しました: %v", requestID, err)
+	} else {
+		log.Printf("[REQUEST_ID: %s] service_registrations 更新成功。影響を受けた行数: %d", requestID, rowsAffected)
+	}
+
+	resp := RegisterResponse{
+		Message: "Success",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONエンコードエラー: %v", requestID, err)
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[REQUEST_ID: %s] POST /api/service/register レスポンスを送信しました。レスポンス内容: %+v", requestID, resp)
+}
+
+func readCSVPart(r *http.Request, field string) (string, error) {
+	file, _, err := r.FormFile(field)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	b, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func loadOrganizationsWithRooms() ([]organizationWithRoom, error) {
+	query := `
+        SELECT o.scheme, o.api_endpoint, o.port_number, COALESCE(sr.room_id, '') AS room_id
+        FROM organizations o
+        LEFT JOIN service_registrations sr ON sr.system_uri = o.api_endpoint
+    `
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var organizations []organizationWithRoom
+	for rows.Next() {
+		var org organizationWithRoom
+		if err := rows.Scan(&org.Scheme, &org.APIEndpoint, &org.PortNumber, &org.RoomID); err != nil {
+			return nil, err
+		}
+		organizations = append(organizations, org)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return organizations, nil
+}
+
+const floorMapJSON = `{
+  "type": "FeatureCollection",
+  "crs": { "type": "name", "properties": { "name": "CRS:PIXEL" } },
+  "features": [
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[780,91],[780,390],[80,390],[80,440],[370,440],[370,840],[80,840],[80,920],[780,920],[780,1431],[839,1431],[841,91]]] },
+      "properties": { "id": "R073","name": "Room073","type": "room","area": 354190 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,1290],[1090,1290],[1090,1430],[850,1430],[850,1290]]]},
+      "properties": { "id": "R004","name": "Room004","type": "room","area": 34869 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,990],[1090,990],[1090,1280],[850,1280],[850,990]]]},
+      "properties": { "id": "R008","name": "Room008","type": "room","area": 71467 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[650,930],[770,930],[770,1220],[650,1220],[650,930]]]},
+      "properties": { "id": "R010","name": "Room010","type": "room","area": 33861 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[460,930],[640,930],[640,1220],[460,1220],[460,930]]]},
+      "properties": { "id": "R011","name": "Room011","type": "room","area": 51433 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[210,930],[450,930],[450,1220],[210,1220],[210,930]]]},
+      "properties": { "id": "R012","name": "Room012","type": "room","area": 67544 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[80,930],[200,930],[200,1220],[80,1220],[80,930]]]},
+      "properties": { "id": "R016","name": "Room016","type": "room","area": 33388 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,690],[1090,690],[1090,980],[850,980],[850,690]]]},
+      "properties": { "id": "R022","name": "Room022","type": "room","area": 72050 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,540],[1090,540],[1090,680],[850,680],[850,540]]]},
+      "properties": { "id": "R050","name": "Room050","type": "room","area": 35691 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[430,450],[770,450],[770,870],[430,870],[430,450]]]},
+      "properties": { "id": "R056","name": "Room056","type": "room","area": 94347 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[80,580],[360,580],[360,830],[80,830],[80,580]]]},
+      "properties": { "id": "R057","name": "Room057","type": "room","area": 73746 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[80,450],[360,450],[360,570],[80,570],[80,450]]]},
+      "properties": { "id": "R058","name": "Room058","type": "room","area": 73746 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,390],[1090,390],[1090,535],[850,535],[850,390]]]},
+      "properties": { "id": "R060","name": "Room060","type": "room","area": 35243 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[80,90],[200,90],[200,380],[80,380],[80,90]]]},
+      "properties": { "id": "R063","name": "Room063","type": "room","area": 33763 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[210,90],[450,90],[450,380],[210,380],[210,90]]]},
+      "properties": { "id": "R066","name": "Room066","type": "room","area": 67497 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[460,90],[640,90],[640,380],[460,380],[460,90]]]},
+      "properties": { "id": "R069","name": "Room069","type": "room","area": 51855 }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[650,90],[770,90],[770,380],[650,380],[650,90]]]},
+      "properties": { "id": "R074","name": "Room074","type": "room","area": 33729,"highlight": true }},
+
+    { "type": "Feature",
+      "geometry": { "type": "Polygon",
+        "coordinates": [[[850,90],[1090,90],[1090,380],[850,380],[850,90]]]},
+      "properties": { "id": "R075","name": "Room075","type": "room","area": 72292 }}
+  ]
+}`
+
+type serviceInquiryResult struct {
+	org        organizationWithRoom
+	percentage int
+}
+
+/*──────────────────────────── /api/service/inquiry ────────────────────────────*/
+
+func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
+	requestID := uuid.New().String()
+	log.Printf("[REQUEST_ID: %s] /api/service/inquiry エンドポイントにアクセスされました。メソッド: %s", requestID, r.Method)
+
+	if r.Method != http.MethodPost {
+		log.Printf("[REQUEST_ID: %s][WARN] 許可されていないメソッド: %s, パス: %s", requestID, r.Method, r.URL.Path)
+		http.Error(w, "許可されていないメソッドです", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] multipart の解析に失敗しました: %v", requestID, err)
+		http.Error(w, "multipart の解析に失敗しました", http.StatusBadRequest)
+		return
+	}
+
+	wifiRaw, err := readCSVPart(r, "wifi_data")
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] wifi_data の取得に失敗しました: %v", requestID, err)
+		http.Error(w, "wifi_data の取得に失敗しました", http.StatusBadRequest)
+		return
+	}
+	bleRaw, err := readCSVPart(r, "ble_data")
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] ble_data の取得に失敗しました: %v", requestID, err)
+		http.Error(w, "ble_data の取得に失敗しました", http.StatusBadRequest)
+		return
+	}
+
+	wifiData, err := parseCSVFromString(wifiRaw)
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] WiFi CSV の解析エラー: %v", requestID, err)
+		http.Error(w, "WiFi CSV の解析エラー", http.StatusBadRequest)
+		return
+	}
+	bleData, err := parseCSVFromString(bleRaw)
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] BLE CSV の解析エラー: %v", requestID, err)
+		http.Error(w, "BLE CSV の解析エラー", http.StatusBadRequest)
+		return
+	}
+
+	organizations, err := loadOrganizationsWithRooms()
+	if err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] 組織情報の取得に失敗しました: %v", requestID, err)
+		http.Error(w, "組織情報の取得に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	filtered := make([]organizationWithRoom, 0, len(organizations))
+	for _, org := range organizations {
+		if org.RoomID == "" {
+			log.Printf("[REQUEST_ID: %s][WARN] room_id が登録されていないためスキップします: %+v", requestID, org)
+			continue
+		}
+		filtered = append(filtered, org)
+	}
+
+	if len(filtered) == 0 {
+		log.Printf("[REQUEST_ID: %s][WARN] room_id が登録された組織が存在しません", requestID)
+		http.Error(w, "room_id が登録された組織が存在しません", http.StatusNotFound)
+		return
+	}
+
+	var wg sync.WaitGroup
+	resultChan := make(chan serviceInquiryResult, len(filtered))
+
+	for _, org := range filtered {
+		wg.Add(1)
+		go func(org organizationWithRoom) {
+			defer wg.Done()
+			systemURI := fmt.Sprintf("%s://%s", org.Scheme, org.APIEndpoint)
+			log.Printf("[REQUEST_ID: %s] 組織 %s:%d へのサービスクエリを開始します。", requestID, systemURI, org.PortNumber)
+			percentage, err := querySystem(systemURI, org.PortNumber, wifiData, bleData, requestID)
+			if err != nil {
+				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, org.PortNumber, err)
+				return
+			}
+			resultChan <- serviceInquiryResult{org: org, percentage: percentage}
+		}(org)
+	}
+
+	wg.Wait()
+	close(resultChan)
+
+	best := serviceInquiryResult{percentage: -1}
+	for res := range resultChan {
+		if res.percentage > best.percentage {
+			best = res
+		}
+	}
+
+	if best.percentage < 0 {
+		log.Printf("[REQUEST_ID: %s][ERROR] 有効な応答を受信できませんでした", requestID)
+		http.Error(w, "有効な応答を受信できませんでした", http.StatusBadGateway)
+		return
+	}
+
+	resp := ServiceInquiryResponse{
+		RoomID:              best.org.RoomID,
+		FloorMap:            json.RawMessage(floorMapJSON),
+		PercentageProcessed: float64(best.percentage),
+		Organization:        fmt.Sprintf("%s://%s:%d", best.org.Scheme, best.org.APIEndpoint, best.org.PortNumber),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[REQUEST_ID: %s][ERROR] JSONエンコードエラー: %v", requestID, err)
+		http.Error(w, "JSONエンコードエラー", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[REQUEST_ID: %s] /api/service/inquiry レスポンスを送信しました。レスポンス内容: %+v", requestID, resp)
 }
 
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
