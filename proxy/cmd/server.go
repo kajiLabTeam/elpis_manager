@@ -105,6 +105,11 @@ var (
 	}()
 )
 
+type floorMapCacheEntry struct {
+	data      json.RawMessage
+	hallwayID string
+}
+
 /*──────────────────────────── main ────────────────────────────*/
 
 func init() {
@@ -432,15 +437,15 @@ func inferFloorFromRoomID(roomID string) (int, error) {
 	return 0, fmt.Errorf("room_id に 1-9 の数字が含まれていません: %s", roomID)
 }
 
-func loadFloorMap(roomID string) (json.RawMessage, error) {
+func loadFloorMap(roomID string) (json.RawMessage, string, error) {
 	floor, err := inferFloorFromRoomID(roomID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if cached, ok := floorMapCache.Load(floor); ok {
-		if v, ok := cached.(json.RawMessage); ok {
-			return v, nil
+		if v, ok := cached.(floorMapCacheEntry); ok {
+			return v.data, v.hallwayID, nil
 		}
 	}
 
@@ -449,13 +454,33 @@ func loadFloorMap(roomID string) (json.RawMessage, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("フロアマップ読み込み失敗 (%s): %w", path, err)
+		return nil, "", fmt.Errorf("フロアマップ読み込み失敗 (%s): %w", path, err)
 	}
 
 	raw := json.RawMessage(data)
-	floorMapCache.Store(floor, raw)
 
-	return raw, nil
+	// ハイライト用に廊下IDを抜き出してキャッシュ
+	var parsed struct {
+		Features []struct {
+			Properties struct {
+				ID   string `json:"id"`
+				Type string `json:"type"`
+			} `json:"properties"`
+		} `json:"features"`
+	}
+	hallwayID := ""
+	if err := json.Unmarshal(raw, &parsed); err == nil {
+		for _, f := range parsed.Features {
+			if strings.EqualFold(f.Properties.Type, "hallway") {
+				hallwayID = f.Properties.ID
+				break
+			}
+		}
+	}
+
+	floorMapCache.Store(floor, floorMapCacheEntry{data: raw, hallwayID: hallwayID})
+
+	return raw, hallwayID, nil
 }
 
 type serviceInquiryResult struct {
@@ -563,15 +588,22 @@ func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	floorMap, err := loadFloorMap(best.org.RoomID)
+	floorMap, hallwayID, err := loadFloorMap(best.org.RoomID)
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] フロアマップの取得に失敗しました (room_id=%s): %v", requestID, best.org.RoomID, err)
 		http.Error(w, "フロアマップの取得に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
+	const hallwayThreshold = 20
+	responseRoomID := best.org.RoomID
+	if best.percentage < hallwayThreshold && hallwayID != "" {
+		responseRoomID = hallwayID
+		log.Printf("[REQUEST_ID: %s] 確信度 %.2f%% が閾値未満のため廊下 (%s) を返します", requestID, float64(best.percentage), hallwayID)
+	}
+
 	resp := ServiceInquiryResponse{
-		RoomID:              best.org.RoomID,
+		RoomID:              responseRoomID,
 		FloorMap:            floorMap,
 		PercentageProcessed: float64(best.percentage),
 	}

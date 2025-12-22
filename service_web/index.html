@@ -49,14 +49,128 @@
         color: #444;
         line-height: 1.5;
       }
+      #dev-panel {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        padding: 10px 12px;
+        width: 320px;
+        backdrop-filter: blur(6px);
+        display: none;
+      }
+      #dev-panel.open {
+        display: block;
+      }
+      #dev-panel h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      #dev-panel button {
+        padding: 6px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background: #f5f5f5;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      #dev-panel button:hover {
+        background: #eee;
+      }
+      #dev-panel .inputs {
+        margin-top: 8px;
+      }
+      #dev-panel .actions {
+        margin-top: 8px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      #dev-panel textarea {
+        width: 100%;
+        min-height: 90px;
+        font-family: monospace;
+        font-size: 12px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 6px;
+        box-sizing: border-box;
+        background: #fafafa;
+      }
+      #dev-panel label {
+        font-size: 12px;
+        color: #444;
+        display: block;
+        margin: 6px 0 4px;
+      }
+      #dev-toggle {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 999;
+        width: 42px;
+        height: 42px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+        backdrop-filter: blur(6px);
+      }
+      #dev-toggle .bars {
+        width: 18px;
+        height: 12px;
+        position: relative;
+      }
+      #dev-toggle .bars::before,
+      #dev-toggle .bars::after,
+      #dev-toggle .bars span {
+        content: "";
+        position: absolute;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: #333;
+        border-radius: 2px;
+      }
+      #dev-toggle .bars::before {
+        top: 0;
+      }
+      #dev-toggle .bars::after {
+        bottom: 0;
+      }
+      #dev-toggle .bars span {
+        top: 50%;
+        transform: translateY(-50%);
+      }
     </style>
   </head>
   <body>
+    <button id="dev-toggle" aria-label="開発モードを開く"><span class="bars"><span></span></span></button>
     <div id="map"></div>
     <div id="info">
       <div class="label">所在推定</div>
       <div class="value">照会中...</div>
       <div class="meta">Wi‑Fi / BLE データを送信して推定します。</div>
+    </div>
+    <div id="dev-panel">
+      <h3>開発モード</h3>
+      <button id="toggle-dev">閉じる</button>
+      <div class="inputs">
+        <label for="wifi-input">Wi‑Fi CSV</label>
+        <textarea id="wifi-input"></textarea>
+        <label for="ble-input">BLE CSV</label>
+        <textarea id="ble-input"></textarea>
+        <div class="actions">
+          <button id="resend">再送信</button>
+        </div>
+      </div>
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -76,6 +190,7 @@
       let floorLayer = L.layerGroup().addTo(map);
       let highlightedLayer = null;
       const infoBox = document.getElementById("info");
+      let devMode = false;
 
       // GeoJSON 毎に塗り分ける基本スタイル
       function getInitialStyle(feature) {
@@ -113,12 +228,52 @@
         });
       }
 
+      /*──────────────────────── 開発用: 任意CSV編集 ───────────────────────*/
+      function sampleWifiCsv() {
+        const now = Math.floor(Date.now() / 1000);
+        return `UNIXTIME,BSSID,RSSI,SSID\n${now},00:14:22:01:23:45,-45,Wi-Fi1\n${now},00:25:96:FF:FE:0C,-55,Wi-Fi2\n`;
+      }
+      function sampleBleCsv() {
+        const now = Math.floor(Date.now() / 1000);
+        return `UNIXTIME,MACADDRESS,RSSI,ServiceUUIDs\n${now},A1:B2:C3:D4:E5:F6,-65,0000AAFE-0000-1000-8000-00805F9B34FB\n${now},2E:3C:A8:03:7C:0A,-70,0000FEAA-0000-1000-8000-00805F9B34FB\n`;
+      }
+      const devPanel = document.getElementById("dev-panel");
+      const devToggle = document.getElementById("dev-toggle");
+      const toggleDevBtn = document.getElementById("toggle-dev");
+      const devInputs = document.querySelector("#dev-panel .inputs");
+      const wifiInput = document.getElementById("wifi-input");
+      const bleInput = document.getElementById("ble-input");
+      const resendBtn = document.getElementById("resend");
+      function ensureDevDefaults() {
+        if (!wifiInput.value.trim()) wifiInput.value = sampleWifiCsv();
+        if (!bleInput.value.trim()) bleInput.value = sampleBleCsv();
+      }
+      function openDevPanel() {
+        devMode = true;
+        ensureDevDefaults();
+        devPanel.classList.add("open");
+        devToggle.style.display = "none";
+      }
+      function closeDevPanel() {
+        devMode = false;
+        devPanel.classList.remove("open");
+        devToggle.style.display = "inline-flex";
+      }
+
+      devToggle.addEventListener("click", openDevPanel);
+      toggleDevBtn.addEventListener("click", closeDevPanel);
+      function getCsvPayload() {
+        if (devMode) {
+          ensureDevDefaults();
+          return { wifi: wifiInput.value, ble: bleInput.value };
+        }
+        return { wifi: sampleWifiCsv(), ble: sampleBleCsv() };
+      }
+
       /*──────────────────────── API 呼び出し & 描画 ───────────────────────*/
       async function queryServer() {
-        // ── 1. Wi‑Fi / BLE CSV を即席で生成（デモ用）
-        const now = Math.floor(Date.now() / 1000);
-        const wifiCsv = `UNIXTIME,BSSID,RSSI,SSID\n${now},00:14:22:01:23:45,-45,Wi-Fi1\n${now},00:25:96:FF:FE:0C,-55,Wi-Fi2\n`;
-        const bleCsv = `UNIXTIME,MACADDRESS,RSSI,ServiceUUIDs\n${now},A1:B2:C3:D4:E5:F6,-65,0000AAFE-0000-1000-8000-00805F9B34FB\n${now},2E:3C:A8:03:7C:0A,-70,0000FEAA-0000-1000-8000-00805F9B34FB\n`;
+        // ── 1. Wi‑Fi / BLE CSV を取得（開発モードなら入力値を使用）
+        const { wifi: wifiCsv, ble: bleCsv } = getCsvPayload();
 
         // ── 2. multipart/form-data を組み立て
         const fd = new FormData();
@@ -138,28 +293,7 @@
         return res.json();
       }
 
-      function extractFloor(roomId) {
-        const match = (roomId || "").match(/[1-9]/);
-        return match ? Number(match[0]) : null;
-      }
-
-      function updateInfoBox(data) {
-        const { room_id, percentage_processed, timestamp } = data || {};
-        const floor = extractFloor(room_id);
-        const confidence = typeof percentage_processed === "number" ? `${percentage_processed.toFixed(1)}%` : "-";
-        const timeText = timestamp ? new Date(timestamp).toLocaleString("ja-JP") : "-";
-
-        infoBox.innerHTML = `
-          <div class="label">所在推定</div>
-          <div class="value">${room_id ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）` : "未取得"}</div>
-          <div class="meta">
-            確信度: ${confidence}<br />
-            応答時刻: ${timeText}
-          </div>
-        `;
-      }
-
-      async function init() {
+      async function renderFromAPI() {
         try {
           const data = await queryServer();
           const { floor_map: geojson, room_id } = data;
@@ -191,8 +325,40 @@
         }
       }
 
+      resendBtn.addEventListener("click", () => {
+        resendBtn.disabled = true;
+        resendBtn.textContent = "送信中…";
+        renderFromAPI()
+          .catch(() => {})
+          .finally(() => {
+            resendBtn.disabled = false;
+            resendBtn.textContent = "再送信";
+          });
+      });
+
+      function extractFloor(roomId) {
+        const match = (roomId || "").match(/[1-9]/);
+        return match ? Number(match[0]) : null;
+      }
+
+      function updateInfoBox(data) {
+        const { room_id, percentage_processed, timestamp } = data || {};
+        const floor = extractFloor(room_id);
+        const confidence = typeof percentage_processed === "number" ? `${percentage_processed.toFixed(1)}%` : "-";
+        const timeText = timestamp ? new Date(timestamp).toLocaleString("ja-JP") : "-";
+
+        infoBox.innerHTML = `
+          <div class="label">所在推定</div>
+          <div class="value">${room_id ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）` : "未取得"}</div>
+          <div class="meta">
+            確信度: ${confidence}<br />
+            応答時刻: ${timeText}
+          </div>
+        `;
+      }
+
       // ページ読み込み完了後に開始
-      window.addEventListener("DOMContentLoaded", init);
+      window.addEventListener("DOMContentLoaded", renderFromAPI);
 
       /*──────────────────────── クリックで手動ハイライト（任意） ───────────────────────*/
       map.on("click", (e) => {
