@@ -201,7 +201,6 @@ type proxyInquiryResp struct {
 	RoomID              string          `json:"room_id"`
 	FloorMap            json.RawMessage `json:"floor_map"`
 	PercentageProcessed float64         `json:"percentage_processed"`
-	Organization        string          `json:"organization"`
 }
 
 func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
@@ -492,13 +491,11 @@ func handleProxyInquiry(proxyURL string, client *http.Client) http.HandlerFunc {
 			RoomID              string          `json:"room_id"`
 			FloorMap            json.RawMessage `json:"floor_map"`
 			PercentageProcessed float64         `json:"percentage_processed"`
-			Organization        string          `json:"organization"`
 			Timestamp           string          `json:"timestamp"`
 		}{
 			RoomID:              proxyResp.RoomID,
 			FloorMap:            proxyResp.FloorMap,
 			PercentageProcessed: proxyResp.PercentageProcessed,
-			Organization:        proxyResp.Organization,
 			Timestamp:           time.Now().UTC().Format(time.RFC3339),
 		}
 

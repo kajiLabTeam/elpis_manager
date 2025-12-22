@@ -80,7 +80,6 @@ type ServiceInquiryResponse struct {
 	RoomID              string          `json:"room_id"`
 	FloorMap            json.RawMessage `json:"floor_map"`
 	PercentageProcessed float64         `json:"percentage_processed"`
-	Organization        string          `json:"organization"`
 }
 
 type organizationWithRoom struct {
@@ -575,7 +574,6 @@ func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
 		RoomID:              best.org.RoomID,
 		FloorMap:            floorMap,
 		PercentageProcessed: float64(best.percentage),
-		Organization:        fmt.Sprintf("%s://%s:%d", best.org.Scheme, best.org.APIEndpoint, best.org.PortNumber),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

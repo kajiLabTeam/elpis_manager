@@ -144,7 +144,7 @@
       }
 
       function updateInfoBox(data) {
-        const { room_id, organization, percentage_processed, timestamp } = data || {};
+        const { room_id, percentage_processed, timestamp } = data || {};
         const floor = extractFloor(room_id);
         const confidence = typeof percentage_processed === "number" ? `${percentage_processed.toFixed(1)}%` : "-";
         const timeText = timestamp ? new Date(timestamp).toLocaleString("ja-JP") : "-";
@@ -153,7 +153,6 @@
           <div class="label">所在推定</div>
           <div class="value">${room_id ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）` : "未取得"}</div>
           <div class="meta">
-            組織: ${organization || "-"}<br />
             確信度: ${confidence}<br />
             応答時刻: ${timeText}
           </div>
