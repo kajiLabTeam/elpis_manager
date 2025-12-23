@@ -49,6 +49,9 @@
         color: #444;
         line-height: 1.5;
       }
+      #info .confidence-row {
+        display: none;
+      }
       #dev-panel {
         position: absolute;
         top: 12px;
@@ -157,7 +160,10 @@
     <div id="info">
       <div class="label">所在推定</div>
       <div class="value">照会中...</div>
-      <div class="meta">Wi‑Fi / BLE データを送信して推定します。</div>
+      <div class="meta">
+        <div class="confidence-row">確信度: <span id="confidence-val">-</span></div>
+        <div>応答時刻: <span id="timestamp-val">-</span></div>
+      </div>
     </div>
     <div id="dev-panel">
       <h3>開発モード</h3>
@@ -244,6 +250,10 @@
       const wifiInput = document.getElementById("wifi-input");
       const bleInput = document.getElementById("ble-input");
       const resendBtn = document.getElementById("resend");
+      const confidenceRow = document.querySelector("#info .confidence-row");
+      const confidenceVal = document.getElementById("confidence-val");
+      const timestampVal = document.getElementById("timestamp-val");
+      const valueEl = document.querySelector("#info .value");
       function ensureDevDefaults() {
         if (!wifiInput.value.trim()) wifiInput.value = sampleWifiCsv();
         if (!bleInput.value.trim()) bleInput.value = sampleBleCsv();
@@ -253,11 +263,13 @@
         ensureDevDefaults();
         devPanel.classList.add("open");
         devToggle.style.display = "none";
+        confidenceRow.style.display = "block";
       }
       function closeDevPanel() {
         devMode = false;
         devPanel.classList.remove("open");
         devToggle.style.display = "inline-flex";
+        confidenceRow.style.display = "none";
       }
 
       devToggle.addEventListener("click", openDevPanel);
@@ -347,14 +359,11 @@
         const confidence = typeof percentage_processed === "number" ? `${percentage_processed.toFixed(1)}%` : "-";
         const timeText = timestamp ? new Date(timestamp).toLocaleString("ja-JP") : "-";
 
-        infoBox.innerHTML = `
-          <div class="label">所在推定</div>
-          <div class="value">${room_id ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）` : "未取得"}</div>
-          <div class="meta">
-            確信度: ${confidence}<br />
-            応答時刻: ${timeText}
-          </div>
-        `;
+        valueEl.textContent = room_id
+          ? `${room_id}（${floor ? `${floor}階` : "フロア不明"}）`
+          : "未取得";
+        confidenceVal.textContent = confidence;
+        timestampVal.textContent = timeText;
       }
 
       // ページ読み込み完了後に開始
