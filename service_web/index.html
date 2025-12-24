@@ -256,7 +256,6 @@
       const valueEl = document.querySelector("#info .value");
       function ensureDevDefaults() {
         if (!wifiInput.value.trim()) wifiInput.value = sampleWifiCsv();
-        if (!bleInput.value.trim()) bleInput.value = sampleBleCsv();
       }
       function openDevPanel() {
         devMode = true;
@@ -277,7 +276,8 @@
       function getCsvPayload() {
         if (devMode) {
           ensureDevDefaults();
-          return { wifi: wifiInput.value, ble: bleInput.value };
+          // BLE が未入力なら空ファイルを送る
+          return { wifi: wifiInput.value, ble: bleInput.value.trim() ? bleInput.value : "" };
         }
         return { wifi: sampleWifiCsv(), ble: sampleBleCsv() };
       }

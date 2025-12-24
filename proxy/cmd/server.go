@@ -595,7 +595,7 @@ func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const hallwayThreshold = 20
+	const hallwayThreshold = 30
 	responseRoomID := best.org.RoomID
 	if best.percentage < hallwayThreshold && hallwayID != "" {
 		responseRoomID = hallwayID

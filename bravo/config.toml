@@ -1,0 +1,19 @@
+mode = "docker"
+server_port = "8013"
+
+[Docker]
+proxy_url = "http://proxy:8080/api/register"
+inquiry_url = "http://proxy:8080/api/inquiry"
+estimation_url = "http://bravo_estimation-api:8103/predict"
+db_conn_str = "postgres://myuser:mypassword@postgres_bravo:5432/bravodb?sslmode=disable"
+skip_registration = false
+
+[Local]
+proxy_url = "http://localhost:8080/api/register"
+inquiry_url = "http://localhost:8080/api/inquiry"
+estimation_url = "http://localhost:8103/predict"
+db_conn_str = "postgres://myuser:mypassword@localhost:5433/bravodb?sslmode=disable"
+skip_registration = false
+
+[Registration]
+system_uri = "bravo"

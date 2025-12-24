@@ -134,7 +134,7 @@ def generate_pdf_report(results_df, pdf_path):
 def main():
     fingerprint_dir = os.getenv('FINGERPRINT_DIR', '/app/manager_fingerprint')
     judgement_dir = 'judgement'
-    model_dir = 'model'
+    model_dir = os.getenv('MODEL_DIR', '/tmp/model')
 
     data = load_data(fingerprint_dir)
     if data is None:
