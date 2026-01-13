@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Federation demo with 2 orgs (manager + echo).
+# Federation demo with 2-3 orgs (manager + echo + bravo optional).
 # 1) Register each org's system_uri and roomID at the proxy
 # 2) Run federated inquiry at the proxy
 # 3) Run federated inquiry via service-side forwarder (Basic Auth)
@@ -16,6 +16,10 @@ MANAGER_PORT="${MANAGER_PORT:-8010}"
 ECHO_URI="${ECHO_URI:-echo}"
 ECHO_ROOM="${ECHO_ROOM:-513}"
 ECHO_PORT="${ECHO_PORT:-8011}"
+
+BRAVO_URI="${BRAVO_URI:-bravo}"
+BRAVO_ROOM="${BRAVO_ROOM:-515}"
+BRAVO_PORT="${BRAVO_PORT:-8013}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq が必要です。brew install jq などでインストールしてください。" >&2
@@ -39,6 +43,48 @@ pretty_json() {
 # Basic auth for the service forwarder
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-user}"
 BASIC_AUTH_PASS="${BASIC_AUTH_PASS:-PassWord@123}"
+
+# Registration set: manager | manager+echo | manager+echo+bravo
+# You can pass it as the first arg or via REGISTER_SET.
+REGISTER_SET="${REGISTER_SET:-${1:-}}"
+
+normalize_register_set() {
+  case "$1" in
+    1|manager)
+      echo "manager"
+      ;;
+    2|manager+echo|manager-echo|manager_echo)
+      echo "manager+echo"
+      ;;
+    3|manager+echo+bravo|manager-echo-bravo|manager_echo_bravo)
+      echo "manager+echo+bravo"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [[ -n "${REGISTER_SET}" ]]; then
+  if ! normalized_set="$(normalize_register_set "${REGISTER_SET}")"; then
+    echo "REGISTER_SET は manager / manager+echo / manager+echo+bravo のいずれかを指定してください。" >&2
+    exit 1
+  fi
+  REGISTER_SET="${normalized_set}"
+elif [[ -t 0 ]]; then
+  echo "登録する組織セットを選択してください:"
+  echo "  1) manager only"
+  echo "  2) manager + echo"
+  echo "  3) manager + echo + bravo"
+  read -r choice
+  if ! normalized_set="$(normalize_register_set "${choice}")"; then
+    echo "選択が不正です。1/2/3 を入力してください。" >&2
+    exit 1
+  fi
+  REGISTER_SET="${normalized_set}"
+else
+  REGISTER_SET="manager+echo"
+fi
 
 # temp files for sample WiFi/BLE CSVs
 wifi_csv="$(mktemp)"
@@ -703,8 +749,24 @@ JSON
     --data-binary "${body}")"
 }
 
-register_org "$MANAGER_URI" "$MANAGER_ROOM" "$MANAGER_PORT"
-register_org "$ECHO_URI" "$ECHO_ROOM" "$ECHO_PORT"
+case "${REGISTER_SET}" in
+  manager)
+    register_org "$MANAGER_URI" "$MANAGER_ROOM" "$MANAGER_PORT"
+    ;;
+  manager+echo)
+    register_org "$MANAGER_URI" "$MANAGER_ROOM" "$MANAGER_PORT"
+    register_org "$ECHO_URI" "$ECHO_ROOM" "$ECHO_PORT"
+    ;;
+  manager+echo+bravo)
+    register_org "$MANAGER_URI" "$MANAGER_ROOM" "$MANAGER_PORT"
+    register_org "$ECHO_URI" "$ECHO_ROOM" "$ECHO_PORT"
+    register_org "$BRAVO_URI" "$BRAVO_ROOM" "$BRAVO_PORT"
+    ;;
+  *)
+    echo "REGISTER_SET の値が不正です: ${REGISTER_SET}" >&2
+    exit 1
+    ;;
+esac
 
 echo "== federated inquiry (proxy) -> $PROXY_BASE/api/service/inquiry"
 inq_proxy_resp=$(curl -fsS -X POST "$PROXY_BASE/api/service/inquiry" \

@@ -615,7 +615,7 @@ func serviceInquiryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[REQUEST_ID: %s] /api/service/inquiry レスポンスを送信しました。レスポンス内容: %+v", requestID, resp)
+	log.Printf("[REQUEST_ID: %s] /api/service/inquiry レスポンスを送信しました。RoomID: %s, Percentage: %.2f%%", requestID, resp.RoomID, resp.PercentageProcessed)
 }
 
 func inquiryHandler(w http.ResponseWriter, r *http.Request) {
