@@ -18,7 +18,7 @@ ECHO_ROOM="${ECHO_ROOM:-513}"
 ECHO_PORT="${ECHO_PORT:-8011}"
 
 BRAVO_URI="${BRAVO_URI:-bravo}"
-BRAVO_ROOM="${BRAVO_ROOM:-515}"
+BRAVO_ROOM="${BRAVO_ROOM:-102}"
 BRAVO_PORT="${BRAVO_PORT:-8013}"
 
 if ! command -v jq >/dev/null 2>&1; then
