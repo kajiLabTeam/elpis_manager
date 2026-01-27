@@ -23,6 +23,10 @@ BRAVO_URI="${BRAVO_URI:-bravo}"
 BRAVO_ROOM="${BRAVO_ROOM:-102}"
 BRAVO_PORT="${BRAVO_PORT:-8013}"
 
+CHARLIE_URI="${CHARLIE_URI:-charlie}"
+CHARLIE_ROOM="${CHARLIE_ROOM:-103}"
+CHARLIE_PORT="${CHARLIE_PORT:-8014}"
+
 command -v jq >/dev/null 2>&1 || {
   echo "jq is required. Install it first." >&2
   exit 1
@@ -46,6 +50,9 @@ normalize_register_set() {
     3|manager+echo+bravo|manager-echo-bravo|manager_echo_bravo)
       echo "manager+echo+bravo"
       ;;
+    4|manager+echo+bravo+charlie|manager-echo-bravo-charlie|manager_echo_bravo_charlie)
+      echo "manager+echo+bravo+charlie"
+      ;;
     *)
       return 1
       ;;
@@ -54,7 +61,7 @@ normalize_register_set() {
 
 if [[ -n "${REGISTER_SET}" ]]; then
   if ! normalized_set="$(normalize_register_set "${REGISTER_SET}")"; then
-    echo "REGISTER_SET must be manager / manager+echo / manager+echo+bravo." >&2
+    echo "REGISTER_SET must be manager / manager+echo / manager+echo+bravo / manager+echo+bravo+charlie." >&2
     exit 1
   fi
   REGISTER_SET="${normalized_set}"
@@ -63,9 +70,10 @@ elif [[ -t 0 ]]; then
   echo "  1) manager only"
   echo "  2) manager + echo"
   echo "  3) manager + echo + bravo"
+  echo "  4) manager + echo + bravo + charlie"
   read -r choice
   if ! normalized_set="$(normalize_register_set "${choice}")"; then
-    echo "Invalid choice. Use 1/2/3." >&2
+    echo "Invalid choice. Use 1/2/3/4." >&2
     exit 1
   fi
   REGISTER_SET="${normalized_set}"
@@ -98,6 +106,8 @@ expected_room_id() {
     echo "590"
   elif (( room >= 401 && room <= 410 )); then
     echo "102"
+  elif (( room >= 411 && room <= 420 )); then
+    echo "103"
   elif (( room >= 421 && room <= 425 )); then
     echo "190"
   else
@@ -262,6 +272,12 @@ if [[ "${SKIP_REGISTER}" != "1" ]]; then
       register_org "${ECHO_URI}" "${ECHO_ROOM}" "${ECHO_PORT}"
       register_org "${BRAVO_URI}" "${BRAVO_ROOM}" "${BRAVO_PORT}"
       ;;
+    manager+echo+bravo+charlie)
+      register_org "${MANAGER_URI}" "${MANAGER_ROOM}" "${MANAGER_PORT}"
+      register_org "${ECHO_URI}" "${ECHO_ROOM}" "${ECHO_PORT}"
+      register_org "${BRAVO_URI}" "${BRAVO_ROOM}" "${BRAVO_PORT}"
+      register_org "${CHARLIE_URI}" "${CHARLIE_ROOM}" "${CHARLIE_PORT}"
+      ;;
     *)
       echo "Invalid REGISTER_SET: ${REGISTER_SET}" >&2
       exit 1
@@ -274,6 +290,7 @@ for i in {110..119}; do rooms+=("${i}"); done
 for i in {120..129}; do rooms+=("${i}"); done
 for i in {130..134}; do rooms+=("${i}"); done
 for i in {401..410}; do rooms+=("${i}"); done
+for i in {411..420}; do rooms+=("${i}"); done
 for i in {421..425}; do rooms+=("${i}"); done
 
 for room in "${rooms[@]}"; do

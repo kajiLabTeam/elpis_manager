@@ -7,7 +7,7 @@ CMD_PATH := ./cmd/server.go
 GO_FLAGS ?= -mode=local -port=8010
 
 # Define default targets
-.PHONY: build up down restart clean help \
+.PHONY: build up down restart clean help reset-models \
         run-proxy run-manager run-est-model run-est-api \
         restart-proxy restart-manager restart-est-api \
         run-test-est-api run-test-manager run-test-proxy run-test-web run-test-fingerprint run-test-manager-full \
@@ -27,6 +27,11 @@ restart: down up ## Restart all services
 
 clean: ## Stop all services and remove containers, networks, and volumes
 	docker compose down --volumes --remove-orphans
+
+reset-models: ## Remove estimation model artifacts for manager/echo/bravo/charlie/all
+	@for d in manager_estimation echo_estimation bravo_estimation charlie_estimation all_estimation; do \
+		rm -f "$$d/model/classifier_model.joblib" "$$d/model/pivot_columns.joblib" "$$d/model/scaler.joblib"; \
+	done
 
 # Run services locally
 run-proxy: ## Run the proxy service locally with command-line flags
