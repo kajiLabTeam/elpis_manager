@@ -66,6 +66,7 @@ type OrganizationResponse struct {
 
 type InquiryResponse struct {
 	ServerConfidence float64 `json:"percentage_processed"`
+	RoomID           string  `json:"room_id"`
 	Success          bool    `json:"success"`
 	Message          string  `json:"message,omitempty"`
 }
@@ -674,7 +675,12 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	requesterAPIEndpoint := fmt.Sprintf("%s://%s", scheme, r.Host)
 
-	query := `SELECT scheme, api_endpoint, port_number FROM organizations WHERE api_endpoint != $1 OR scheme != $2`
+	query := `
+        SELECT o.scheme, o.api_endpoint, o.port_number, COALESCE(sr.room_id, '') AS room_id
+        FROM organizations o
+        LEFT JOIN service_registrations sr ON sr.system_uri = o.api_endpoint
+        WHERE o.api_endpoint != $1 OR o.scheme != $2
+    `
 	rows, err := db.Query(query, strings.Split(requesterAPIEndpoint, "://")[1], strings.Split(requesterAPIEndpoint, "://")[0])
 	if err != nil {
 		log.Printf("[REQUEST_ID: %s][ERROR] データベースクエリエラー: %v", requestID, err)
@@ -683,16 +689,10 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	type Organization struct {
-		Scheme      string
-		APIEndpoint string
-		PortNumber  int
-	}
-
-	var organizations []Organization
+	var organizations []organizationWithRoom
 	for rows.Next() {
-		var org Organization
-		if err := rows.Scan(&org.Scheme, &org.APIEndpoint, &org.PortNumber); err != nil {
+		var org organizationWithRoom
+		if err := rows.Scan(&org.Scheme, &org.APIEndpoint, &org.PortNumber, &org.RoomID); err != nil {
 			log.Printf("[REQUEST_ID: %s][ERROR] 行のスキャンエラー: %v", requestID, err)
 			http.Error(w, fmt.Sprintf("行のスキャンエラー: %v", err), http.StatusInternalServerError)
 			return
@@ -716,37 +716,40 @@ func inquiryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	maxPercentage := 0
+	bestRoomID := ""
 	var wg sync.WaitGroup
-	responseChan := make(chan int, len(organizations))
+	responseChan := make(chan serviceInquiryResult, len(organizations))
 
 	for _, org := range organizations {
 		wg.Add(1)
-		go func(org Organization) {
+		go func(org organizationWithRoom) {
 			defer wg.Done()
 			systemURI := fmt.Sprintf("%s://%s", org.Scheme, org.APIEndpoint)
 			log.Printf("[REQUEST_ID: %s] 組織 %s:%d へのクエリを開始します。", requestID, systemURI, org.PortNumber)
 			percentage, err := querySystem(systemURI, org.PortNumber, wifiData, bleData, requestID)
 			if err != nil {
 				log.Printf("[REQUEST_ID: %s][ERROR] 組織 %s:%d へのクエリシステムエラー: %v", requestID, systemURI, org.PortNumber, err)
-				responseChan <- 0
+				responseChan <- serviceInquiryResult{org: org, percentage: 0}
 				return
 			}
 			log.Printf("[REQUEST_ID: %s] 組織 %s:%d からのレスポンス - PercentageProcessed: %.2f%%", requestID, systemURI, org.PortNumber, float64(percentage))
-			responseChan <- percentage
+			responseChan <- serviceInquiryResult{org: org, percentage: percentage}
 		}(org)
 	}
 
 	wg.Wait()
 	close(responseChan)
 
-	for percentage := range responseChan {
-		if percentage > maxPercentage {
-			maxPercentage = percentage
+	for res := range responseChan {
+		if res.percentage > maxPercentage {
+			maxPercentage = res.percentage
+			bestRoomID = res.org.RoomID
 		}
 	}
 
 	finalResp := InquiryResponse{
 		ServerConfidence: float64(maxPercentage),
+		RoomID:           bestRoomID,
 		Success:          true,
 	}
 
