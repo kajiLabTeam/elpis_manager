@@ -5,7 +5,7 @@ set -euo pipefail
 # Sends the latest BLE/WiFi pairs per room and reports per-room accuracy.
 
 PROXY_BASE="${PROXY_BASE:-http://localhost:8080}"
-AIKAWA_DIR="${AIKAWA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/aikawa}"
+AIKAWA_DIR="${AIKAWA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/stash/20260205}"
 PAIR_LIMIT="${PAIR_LIMIT:-12}"
 SLEEP_SEC="${SLEEP_SEC:-0.2}"
 VERBOSE="${VERBOSE:-1}"

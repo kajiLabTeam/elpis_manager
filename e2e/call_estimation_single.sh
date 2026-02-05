@@ -6,7 +6,7 @@ set -euo pipefail
 #   ./scripts/call_all_estimation_aikawa.sh [room_id] [pair_ts]
 # Env:
 #   ALL_ESTIMATION_BASE : base URL (default: http://localhost:8105)
-#   AIKAWA_DIR          : base directory (default: repo_root/aikawa)
+#   AIKAWA_DIR          : base directory (default: repo_root/stash/20260205)
 #   AIKAWA_ROOM         : room directory (e.g. 421)
 #   PAIR_TS             : timestamp suffix (e.g. 1756799559)
 #   PAIR_INDEX          : 1-based index for the latest 12 pairs
@@ -15,7 +15,7 @@ ALL_ESTIMATION_BASE="${ALL_ESTIMATION_BASE:-http://localhost:8105}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-AIKAWA_DIR="${AIKAWA_DIR:-${REPO_ROOT}/aikawa}"
+AIKAWA_DIR="${AIKAWA_DIR:-${REPO_ROOT}/stash/20260205}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required. Install it first." >&2
